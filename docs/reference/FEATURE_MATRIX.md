@@ -335,6 +335,7 @@ test, and a row naming a command the CLI no longer registers fails it too.
 ---
 
 ## Cloud / Cloudflare
+> **How a row graduates:** A row graduates out of Preview when its maturity score increases to ≥ 3 (or when a first-run smoke test lands and the marker is intentionally removed).
 
 | Capability | Docs status | Maturity | Notes |
 |---|---|---|---|
