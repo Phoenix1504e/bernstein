@@ -334,16 +334,17 @@ test, and a row naming a command the CLI no longer registers fails it too.
 
 ---
 
+
 ## Cloud / Cloudflare
 
 | Capability | Docs status | Maturity | Notes |
 |---|---|---|---|
-| Workers RuntimeBridge | Full | 2 | `bridges/cloudflare.py` agents on Workers + Durable Objects |
-| Workflow Bridge (durable execution) | Full | 2 | `bridges/cloudflare_workflow.py` auto-retry, approval gates |
-| Browser Rendering Bridge | Full | 2 | `bridges/browser_rendering.py` screenshots, scraping, PDFs |
-| R2 Workspace Sync | Full | 2 | `bridges/r2_sync.py` content-addressed delta sync |
-| Workers AI Provider (free LLMs) | Full | 2 | `core/routing/cloudflare_ai.py` Llama, Mistral, Gemma, Qwen |
-| D1 Analytics & Billing | Full | 2 | `core/cost/d1_analytics.py` usage metering, billing tiers |
-| MCP Remote Transport | Full | 2 | `mcp/remote_transport.py` streamable HTTP for remote MCP |
-| Cloud CLI (`bernstein cloud`) | Full | 2 | `cli/commands/cloud_cmd.py` login, run, status, cost, deploy |
-| Codex-on-Cloudflare Adapter | Brief | 1 | `adapters/codex_cloudflare.py` experimental; targets a REST API that does not yet exist and refuses fast |
+| Workers RuntimeBridge | Full | 2 | **Preview.** `bridges/cloudflare.py` agents on Workers + Durable Objects |
+| Workflow Bridge (durable execution) | Full | 2 | **Preview.** `bridges/cloudflare_workflow.py` auto-retry, approval gates |
+| Browser Rendering Bridge | Full | 2 | **Preview.** `bridges/browser_rendering.py` screenshots, scraping, PDFs |
+| R2 Workspace Sync | Full | 2 | **Preview.** `bridges/r2_sync.py` content-addressed delta sync |
+| Workers AI Provider (free LLMs) | Full | 2 | **Preview.** `core/routing/cloudflare_ai.py` Llama, Mistral, Gemma, Qwen |
+| D1 Analytics & Billing | Full | 2 | **Preview.** `core/cost/d1_analytics.py` usage metering, billing tiers |
+| MCP Remote Transport | Full | 2 | **Preview.** `mcp/remote_transport.py` streamable HTTP for remote MCP |
+| Cloud CLI (`bernstein cloud`) | Full | 2 | **Preview.** `cli/commands/cloud_cmd.py` login, run, status, cost, deploy |
+| Codex-on-Cloudflare Adapter | Brief | 1 | **Preview.** `adapters/codex_cloudflare.py` experimental; targets a REST API that does not yet exist and refuses fast |

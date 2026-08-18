@@ -345,3 +345,34 @@ def test_preview_fences_stay_visible(
 
     assert entry_marker in entry_text
     assert blocker in entry_text
+
+def test_cloudflare_section_fenced_as_preview() -> None:
+    """Cloud / Cloudflare rows at maturity ≤ 2 must carry the Preview marker."""
+    text = _MATRIX.read_text(encoding="utf-8")
+    
+    # Extract the Cloud / Cloudflare section
+    start = text.find("## Cloud / Cloudflare")
+    assert start != -1, "Cloud / Cloudflare section not found in feature matrix"
+    
+    # Find the next section header to know where to stop
+    next_section_start = text.find("\n---\n", start)
+    if next_section_start == -1:
+        section_text = text[start:]
+    else:
+        section_text = text[start:next_section_start]
+    
+    # Parse the table rows in this section
+    for line in section_text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|") or set(stripped) <= {"|", "-", ":", " "}:
+            continue
+        cells = [cell.strip() for cell in _CELL_SPLIT.split(stripped.strip("|"))]
+        if len(cells) != 4 or cells[0] in {"Capability", "Command", "Maturity"}:
+            continue
+        
+        capability, _docs, maturity, notes = cells
+        if maturity in {"1", "2"}:
+            assert "**Preview.**" in notes, (
+                f"Cloud / Cloudflare row '{capability}' has maturity {maturity} "
+                "but is missing the **Preview.** marker in its Notes."
+            )
