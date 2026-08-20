@@ -9,8 +9,6 @@ tags:
 
 # Bernstein web GUI
 
-Preview: The Cloud / Cloudflare surfaces (Workers, R2, D1, etc.) are under active hardening and their first-run paths are not yet CI-proven. Rows graduate out of Preview individually as smoke coverage lands.
-
 Browser-based operator surface for live Bernstein runs. Mounted on the same FastAPI process that serves `/api/v1/*`, exposed at `/ui/`.
 
 ## Quickstart
