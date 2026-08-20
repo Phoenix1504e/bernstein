@@ -101,3 +101,58 @@ def test_an_exception_during_render_is_visible_at_default_log_level(
     assert any("Mailbox section rendering skipped" in rec.message and rec.levelno >= 30 for rec in caplog.records), (
         "Expected WARNING log for render exception"
     )
+
+
+def test_a_consumed_message_is_not_rerendered_on_a_later_resume(tmp_path: Path) -> None:
+    workdir = tmp_path
+    journal = workdir / ".sdd" / "runtime" / "mailbox.jsonl"
+    _write_message(journal, task_id="T-1", seq=0)
+
+    spawner = DummySpawner(workdir)
+    tasks = [_create_task(task_id="T-1")]
+
+    # First spawn: renders and records consumption
+    result1 = AgentSpawner._render_mailbox_section(spawner, tasks)
+    assert "[seq 0]" in result1
+
+    # Resume: should not re-render the consumed message
+    result2 = AgentSpawner._render_mailbox_section(spawner, tasks)
+    assert result2 == ""
+
+
+def test_a_message_posted_after_the_cursor_is_still_rendered(tmp_path: Path) -> None:
+    workdir = tmp_path
+    journal = workdir / ".sdd" / "runtime" / "mailbox.jsonl"
+    _write_message(journal, task_id="T-1", seq=0)
+
+    spawner = DummySpawner(workdir)
+    tasks = [_create_task(task_id="T-1")]
+
+    # First spawn: consumes message 0
+    AgentSpawner._render_mailbox_section(spawner, tasks)
+
+    # Append a new message (seq=1)
+    _write_message(journal, task_id="T-1", seq=1)
+
+    # Second spawn: should render message 1 but NOT message 0
+    result = AgentSpawner._render_mailbox_section(spawner, tasks)
+    assert "[seq 0]" not in result
+    assert "[seq 1]" in result
+
+
+def test_cursor_is_derived_from_the_chain_not_local_state(tmp_path: Path) -> None:
+    workdir = tmp_path
+    journal = workdir / ".sdd" / "runtime" / "mailbox.jsonl"
+    _write_message(journal, task_id="T-1", seq=0)
+
+    # Two independent spawner instances pointing at the same workdir
+    spawner1 = DummySpawner(workdir)
+    spawner2 = DummySpawner(workdir)
+    tasks = [_create_task(task_id="T-1")]
+
+    # First projection records consumption
+    AgentSpawner._render_mailbox_section(spawner1, tasks)
+
+    # Second projection should derive the same cursor from the chain and not re-render
+    result2 = AgentSpawner._render_mailbox_section(spawner2, tasks)
+    assert result2 == ""
