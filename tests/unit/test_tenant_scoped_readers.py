@@ -124,3 +124,24 @@ class TestGitlabCiFixCounterTenantScope:
         # Team A's count should be 1
         count_a = _count_gitlab_ci_fix_attempts(app.state.store, ref, "team-a")
         assert count_a == 1
+
+
+class TestHealthCheckTenantScope:
+    @pytest.mark.asyncio
+    async def test_health_ignores_another_tenants_tasks(self, app: FastAPI, client: AsyncClient) -> None:
+        baseline = (await client.get("/health", headers={"X-Tenant-Id": "team-a"})).json()
+
+        await _create(app, "team-b work", "team-b")
+
+        after = await client.get("/health", headers={"X-Tenant-Id": "team-a"})
+        assert after.status_code == 200
+        assert after.json()["task_count"] == baseline["task_count"]
+
+    @pytest.mark.asyncio
+    async def test_health_still_counts_own_tasks(self, app: FastAPI, client: AsyncClient) -> None:
+        baseline = (await client.get("/health", headers={"X-Tenant-Id": "team-a"})).json()["task_count"]
+
+        await _create(app, "team-a work", "team-a")
+
+        after = await client.get("/health", headers={"X-Tenant-Id": "team-a"})
+        assert after.json()["task_count"] == baseline + 1
