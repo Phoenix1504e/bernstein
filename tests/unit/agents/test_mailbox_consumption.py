@@ -3,13 +3,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from bernstein.core.models import Task
 
 from bernstein.core.agents.spawner_core import AgentSpawner
-from bernstein.core.models import Task
 
 
 class DummySpawner:
     """Minimal stand-in for AgentSpawner to test _render_mailbox_section."""
+
     def __init__(self, workdir: Path):
         self._workdir = workdir
 
@@ -21,6 +22,7 @@ def _create_task(task_id: str = "T-1") -> Task:
         description="Test description",
         role="backend",
     )
+
 
 def _write_message(journal: Path, task_id: str = "T-1", seq: int = 0) -> None:
     """Write a single valid mailbox message to the journal."""
@@ -64,7 +66,9 @@ def test_a_delivered_message_produces_a_consumption_chain_entry(tmp_path: Path) 
     assert events[0].details["entry_hash"] == "hmac-sha256:dummy"
 
 
-def test_missing_journal_produces_a_visible_record_not_silent_empty_string(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+def test_missing_journal_produces_a_visible_record_not_silent_empty_string(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     spawner = DummySpawner(tmp_path)
     tasks = [_create_task()]
 
@@ -72,10 +76,14 @@ def test_missing_journal_produces_a_visible_record_not_silent_empty_string(tmp_p
         result = AgentSpawner._render_mailbox_section(spawner, tasks)
 
     assert result == ""
-    assert any("Mailbox journal missing" in rec.message for rec in caplog.records), "Expected INFO log for missing journal"
+    assert any("Mailbox journal missing" in rec.message for rec in caplog.records), (
+        "Expected INFO log for missing journal"
+    )
 
 
-def test_an_exception_during_render_is_visible_at_default_log_level(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+def test_an_exception_during_render_is_visible_at_default_log_level(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     # Create the journal file so the code tries to instantiate TaskMailbox
     journal = tmp_path / ".sdd" / "runtime" / "mailbox.jsonl"
     journal.parent.mkdir(parents=True, exist_ok=True)
@@ -90,5 +98,6 @@ def test_an_exception_during_render_is_visible_at_default_log_level(tmp_path: Pa
             result = AgentSpawner._render_mailbox_section(spawner, tasks)
 
     assert result == ""
-    assert any("Mailbox section rendering skipped" in rec.message and rec.levelno >= 30 for rec in caplog.records), \
+    assert any("Mailbox section rendering skipped" in rec.message and rec.levelno >= 30 for rec in caplog.records), (
         "Expected WARNING log for render exception"
+    )
