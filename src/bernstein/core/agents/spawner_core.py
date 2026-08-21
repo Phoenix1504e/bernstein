@@ -1751,7 +1751,18 @@ class AgentSpawner:
             pending = []
             for task in tasks:
                 # Compute cursor: highest seq already marked consumed for this task
-                events = chain.query(event_type="task.mailbox_consumed", resource_id=task.id)
+                # include_archived: the cursor reasons about linkage across the
+                # retention boundary, so it must see consumption records that
+                # routine `audit archive` has already compressed into
+                # archive/*.jsonl.gz. Without it the cursor silently falls back
+                # to -1 once a segment ages out and the whole backlog is
+                # re-rendered -- the same defect this fix closes, re-armed by
+                # maintenance rather than by a code change.
+                events = chain.query(
+                    event_type="task.mailbox_consumed",
+                    resource_id=task.id,
+                    include_archived=True,
+                )
                 cursor = max((int(e.details.get("seq", -1)) for e in events), default=-1)
                 pending.extend(mailbox.pending(task.id, since_seq=cursor))
 
