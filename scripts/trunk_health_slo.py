@@ -2,8 +2,8 @@
 
 Ports the inline shell logic from `.github/workflows/trunk-health-slo.yml`
 into a testable Python script. Fixes the population sampling by querying
-the CI workflow's own runs endpoint, excludes cancelled/skipped runs, and
-enforces a minimum sample size before toggling the marker.
+the CI workflow's own runs endpoint, excludes cancelled/skipped/null runs,
+and enforces a minimum sample size before toggling the marker.
 """
 
 from __future__ import annotations
@@ -11,7 +11,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 MIN_SAMPLE_SIZE = 10
@@ -19,37 +21,47 @@ MIN_SAMPLE_SIZE = 10
 
 def fetch_ci_runs(repo: str, token: str, since: datetime) -> list[dict]:
     """Fetch CI workflow runs on main since the given timestamp."""
-    # Query the workflow by file path (ci.yml) to avoid crowding by other workflows
-    url = f"https://api.github.com/repos/{repo}/actions/workflows/ci.yml/runs?branch=main&per_page=100"
-    req = Request(url, headers={"Authorization": f"token {token}", "Accept": "application/vnd.github+json"})
-
+    since_iso = since.strftime("%Y-%m-%dT%H:%M:%SZ")
     runs: list[dict] = []
-    with urlopen(req) as resp:
-        data = json.load(resp)
+    page = 1
 
-    for run in data.get("workflow_runs", []):
-        created_at_str = run.get("created_at", "")
-        if not created_at_str:
-            continue
-        # Parse ISO 8601 (e.g., "2026-08-20T12:34:56Z")
-        dt = datetime.strptime(created_at_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
-        if dt < since:
-            continue
+    while True:
+        # Use the API's created parameter to avoid truncating the time window
+        params = {
+            "branch": "main",
+            "per_page": "100",
+            "created": f">={since_iso}",
+            "page": str(page),
+        }
+        url = f"https://api.github.com/repos/{repo}/actions/workflows/ci.yml/runs?{urlencode(params)}"
+        req = Request(url, headers={"Authorization": f"token {token}", "Accept": "application/vnd.github+json"})
 
-        conclusion = run.get("conclusion")
-        # Exclude cancelled and skipped from both numerator and denominator
-        if conclusion in ("cancelled", "skipped"):
-            continue
+        with urlopen(req) as resp:
+            data = json.load(resp)
 
-        runs.append(run)
+        page_runs = data.get("workflow_runs", [])
+        if not page_runs:
+            break
+
+        runs.extend(page_runs)
+
+        # If we got fewer than 100 runs, we've reached the end
+        if len(page_runs) < 100:
+            break
+
+        page += 1
 
     return runs
 
 
 def score_runs(runs: list[dict]) -> tuple[int, int, int]:
-    """Score the runs, returning (total, red, red_pct)."""
-    # Exclude cancelled and skipped from both numerator and denominator
-    valid_runs = [r for r in runs if r.get("conclusion") not in ("cancelled", "skipped")]
+    """Score the runs, returning (total, red, red_pct).
+
+    Excludes cancelled, skipped, and null (in-progress) runs from both
+    numerator and denominator. An in-progress run has no verdict yet,
+    so it is not a data point.
+    """
+    valid_runs = [r for r in runs if r.get("conclusion") not in ("cancelled", "skipped", None)]
     total = len(valid_runs)
     red = sum(1 for r in valid_runs if r.get("conclusion") in ("failure", "timed_out"))
     red_pct = (red * 100) // total if total > 0 else 0
@@ -59,13 +71,18 @@ def score_runs(runs: list[dict]) -> tuple[int, int, int]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", required=True)
-    parser.add_argument("--token", required=True)
     parser.add_argument("--threshold-pct", type=int, default=5)
     parser.add_argument("--lookback-hours", type=int, default=24)
     args = parser.parse_args()
 
+    # Read token from environment to avoid exposing it in argv
+    token = os.environ.get("GH_TOKEN")
+    if not token:
+        print("Error: GH_TOKEN environment variable not set.", file=sys.stderr)
+        sys.exit(1)
+
     since = datetime.now(UTC) - timedelta(hours=args.lookback_hours)
-    runs = fetch_ci_runs(args.repo, args.token, since)
+    runs = fetch_ci_runs(args.repo, token, since)
     total, red, red_pct = score_runs(runs)
 
     insufficient = total < MIN_SAMPLE_SIZE
