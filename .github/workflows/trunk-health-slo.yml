@@ -93,7 +93,6 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Toggle the trunk-unstable marker issue
-        if: steps.compute.outputs.insufficient_sample != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -101,16 +100,14 @@ jobs:
           RED_PCT: ${{ steps.compute.outputs.red_pct }}
           RED: ${{ steps.compute.outputs.red }}
           TOTAL: ${{ steps.compute.outputs.total }}
+          INSUFFICIENT: ${{ steps.compute.outputs.insufficient_sample }}
         run: |
           set -euo pipefail
 
-          # The flag is an open issue labeled `trunk-unstable`, not a repo
-          # variable. GITHUB_TOKEN cannot write Actions variables under any
-          # `permissions:` grant, so the variable design silently depended
-          # on a PAT that was never provisioned and the gate spent its life
-          # inert. An issue is writable with the job-scoped token, visible
-          # to operators without opening a run, and any failure to write it
-          # fails this job loudly instead of being swallowed.
+          if [ "${INSUFFICIENT}" = "true" ]; then
+            echo "::warning::Insufficient sample size (${TOTAL} runs, need 10). Will not open a new marker, but will close any existing one to avoid latching the repo."
+          fi
+
           gh label create trunk-unstable \
             --repo "${REPO}" \
             --description "Open while the main-branch red-rate is over the SLO threshold; closed automatically on recovery" \
@@ -119,7 +116,8 @@ jobs:
           OPEN_MARKERS=$(gh api "repos/${REPO}/issues?labels=trunk-unstable&state=open&per_page=100" \
             --jq '[.[] | select(.pull_request | not) | .number] | join(" ")')
 
-          if [ "${UNSTABLE}" = "true" ]; then
+          # Suppress opening on insufficient sample, but still allow closing
+          if [ "${UNSTABLE}" = "true" ] && [ "${INSUFFICIENT}" != "true" ]; then
             if [ -z "${OPEN_MARKERS}" ]; then
               gh api -X POST "repos/${REPO}/issues" \
                 -f title="Trunk unstable: ${RED_PCT}% of main CI runs red over the SLO window" \
@@ -135,9 +133,14 @@ jobs:
               echo "Marker issue already open (#${OPEN_MARKERS}); leaving it in place."
             fi
           elif [ -n "${OPEN_MARKERS}" ]; then
+            if [ "${INSUFFICIENT}" = "true" ]; then
+              CLOSE_MSG="Insufficient sample size (${TOTAL} runs in window, need 10). Marker released for lack of evidence; merges resume."
+            else
+              CLOSE_MSG="Red-rate is back under threshold (${RED_PCT}% over the last window). Closing; merges resume."
+            fi
             for issue_number in ${OPEN_MARKERS}; do
               gh api -X POST "repos/${REPO}/issues/${issue_number}/comments" \
-                -f body="Red-rate is back under threshold (${RED_PCT}% over the last window). Closing; merges resume." >/dev/null
+                -f body="${CLOSE_MSG}" >/dev/null
               gh api -X PATCH "repos/${REPO}/issues/${issue_number}" -f state=closed >/dev/null
             done
             echo "Closed marker issue(s): ${OPEN_MARKERS}"
@@ -145,8 +148,7 @@ jobs:
             echo "Trunk healthy; no marker open."
           fi
 
-          # Record a short status note for operator visibility. Step
-          # summary survives in the run UI without spamming issues.
+          # Record a short status note for operator visibility.
           {
             echo "## Trunk health SLO"
             echo ""
@@ -155,5 +157,6 @@ jobs:
             echo "| CI runs on main (window) | ${TOTAL} |"
             echo "| failed runs | ${RED} |"
             echo "| red-rate | ${RED_PCT}% |"
-            echo "| trunk-unstable marker | $([ "${UNSTABLE}" = "true" ] && echo open || echo closed) |"
+            echo "| insufficient sample | ${INSUFFICIENT} |"
+            echo "| trunk-unstable marker | $([ "${UNSTABLE}" = "true" ] && [ "${INSUFFICIENT}" != "true" ] && echo open || echo closed) |"
           } >> "${GITHUB_STEP_SUMMARY}"
