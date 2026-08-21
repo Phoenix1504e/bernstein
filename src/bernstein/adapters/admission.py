@@ -577,7 +577,8 @@ def _canary_verdict_for(adapter: str, installed_version: str | None, last_green_
     """
     from packaging.version import InvalidVersion, Version
 
-    from bernstein.adapters.canary import _VERSION_TOKEN_RE, load_last_green  # pyright: ignore[reportPrivateUsage]
+    from .base import VERSION_TOKEN_RE
+    from .canary import load_last_green
 
     entries = load_last_green(last_green_path)
     entry = entries.get(adapter)
@@ -586,7 +587,7 @@ def _canary_verdict_for(adapter: str, installed_version: str | None, last_green_
     if installed_version is None:
         return CANARY_STALE
 
-    match = _VERSION_TOKEN_RE.search(installed_version)
+    match = VERSION_TOKEN_RE.search(installed_version)
     if not entry.version or match is None:
         return CANARY_STALE
 
@@ -939,11 +940,12 @@ def write_admission_receipt(base_dir: Path, receipt: dict[str, Any]) -> Path:
             escapes ``base_dir``.
     """
     adapter = str(receipt.get("adapter") or "")
-    if not _RECEIPT_NAME_RE.match(adapter):
+    adapter_key = adapter.lower()
+    if not _RECEIPT_NAME_RE.match(adapter_key):
         raise ValueError(f"invalid adapter name for receipt filename: {adapter!r}")
     sha = receipt_sha256(receipt)
     base_dir.mkdir(parents=True, exist_ok=True)
-    stem = f"{adapter}-{sha[:16]}"
+    stem = f"{adapter_key}-{sha[:16]}"
     try:
         candidate = contained_path(base_dir, f"{stem}.json", label="receipt path")
         # The temporary sibling is opened *before* the rename, so it needs the
@@ -978,12 +980,13 @@ def load_admission_receipt(base_dir: Path, adapter: str) -> tuple[dict[str, Any]
         :data:`REASON_RECEIPT_TAMPERED` when every candidate failed its
         content-hash check.
     """
-    if not _RECEIPT_NAME_RE.match(adapter) or not base_dir.exists():
+    adapter_key = adapter.lower()
+    if not _RECEIPT_NAME_RE.match(adapter_key) or not base_dir.exists():
         return None, REASON_NO_RECEIPT
 
     candidates: list[dict[str, Any]] = []
     tampered = False
-    for path in sorted(base_dir.glob(f"{adapter}-*.json")):
+    for path in sorted(base_dir.glob(f"{adapter_key}-*.json")):
         try:
             doc = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -991,7 +994,9 @@ def load_admission_receipt(base_dir: Path, adapter: str) -> tuple[dict[str, Any]
         if not isinstance(doc, dict):
             continue
         body = doc.get("receipt")
-        if not isinstance(body, dict) or body.get("kind") != RECEIPT_KIND or body.get("adapter") != adapter:
+        if not isinstance(body, dict) or body.get("kind") != RECEIPT_KIND:
+            continue
+        if str(body.get("adapter") or "").lower() != adapter_key:
             continue
         if not verify_admission_receipt(doc):
             tampered = True
@@ -1312,7 +1317,7 @@ def preflight_admission(
         try:
             write_admission_receipt(decisions_dir, receipt)
         except (OSError, ValueError) as exc:
-            logger.warning("Could not write admission gate receipt for %s: %s", adapter, type(exc).__name__)
+            logger.warning("Could not write admission gate receipt for %s: %s", adapter, exc)
 
     if chain is not None:
         _anchor_in_chain(chain, receipt, sha)
