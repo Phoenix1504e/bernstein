@@ -18,6 +18,11 @@ from urllib.request import Request, urlopen
 
 MIN_SAMPLE_SIZE = 10
 
+# A scheduled gate that blocks on a socket holds the runner until the job
+# timeout kills it, which reads as an infrastructure outage rather than as
+# the network call it actually is.
+_HTTP_TIMEOUT_S = 30
+
 
 def fetch_ci_runs(repo: str, token: str, since: datetime) -> list[dict]:
     """Fetch CI workflow runs on main since the given timestamp."""
@@ -36,7 +41,7 @@ def fetch_ci_runs(repo: str, token: str, since: datetime) -> list[dict]:
         url = f"https://api.github.com/repos/{repo}/actions/workflows/ci.yml/runs?{urlencode(params)}"
         req = Request(url, headers={"Authorization": f"token {token}", "Accept": "application/vnd.github+json"})
 
-        with urlopen(req) as resp:
+        with urlopen(req, timeout=_HTTP_TIMEOUT_S) as resp:
             data = json.load(resp)
 
         page_runs = data.get("workflow_runs", [])
