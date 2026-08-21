@@ -343,6 +343,39 @@ def test_list_tasks_limit_and_offset_bounds(monkeypatch: pytest.MonkeyPatch) -> 
     assert conn.queries[-1][0] == "SELECT id FROM tasks WHERE status='done'"
 
 
+def test_list_tasks_bounded_by_default_without_explicit_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """list_tasks() must not fetch the entire table when the caller omits limit."""
+    monkeypatch.setattr(store_postgres, "_ASYNCPG_AVAILABLE", True)
+    bound = store_postgres._LIST_TASKS_DEFAULT_LIMIT
+
+    class _Conn:
+        def __init__(self, row_count: int) -> None:
+            self.queries: list[tuple[str, tuple[object, ...]]] = []
+            self.all_rows = [_task_row(id=f"task-{i}", title=f"Task {i}") for i in range(row_count)]
+
+        async def fetch(self, query: str, *args: object) -> list[dict[str, object]]:
+            await asyncio.sleep(0)
+            self.queries.append((query, args))
+            if "FROM tasks" in query:
+                # Emulate PostgreSQL: only ever return up to the requested LIMIT.
+                limit_val = len(self.all_rows)
+                for i, arg in enumerate(args, start=1):
+                    if f"LIMIT ${i}" in query:
+                        limit_val = int(arg)  # type: ignore[arg-type]
+                return self.all_rows[:limit_val]
+            return []
+
+    conn = _Conn(row_count=bound + 1)
+    store = store_postgres.PostgresTaskStore("postgresql://example")
+    cast("Any", store)._pool = _FakePool(conn)
+
+    tasks = asyncio.run(store.list_tasks())
+
+    assert len(tasks) == bound
+    assert f"LIMIT ${1}" in conn.queries[-1][0]
+    assert conn.queries[-1][1] == (bound,)
+
+
 def test_read_archive_bound_keeps_passing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(store_postgres, "_ASYNCPG_AVAILABLE", True)
 
@@ -381,3 +414,28 @@ def test_read_archive_bound_keeps_passing(monkeypatch: pytest.MonkeyPatch) -> No
     assert len(records) == 5
     assert "LIMIT  $1" in conn.queries[0][0]
     assert conn.queries[0][1] == (5,)
+
+
+def test_postgres_count_tasks_executes_select_count(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(store_postgres, "_ASYNCPG_AVAILABLE", True)
+
+    class _Conn:
+        def __init__(self) -> None:
+            self.executed_query: str | None = None
+            self.executed_params: tuple[object, ...] = ()
+
+        async def fetchval(self, query: str, *args: object) -> object:
+            await asyncio.sleep(0)
+            self.executed_query = query
+            self.executed_params = args
+            return 42
+
+    store = store_postgres.PostgresTaskStore("postgresql://example")
+    conn = _Conn()
+    cast("Any", store)._pool = _FakePool(conn)
+
+    count = asyncio.run(store.count_tasks(status="done", cell_id="cell-1", tenant_id="tenant-a"))
+
+    assert count == 42
+    assert conn.executed_query == "SELECT COUNT(*) FROM tasks WHERE status = $1 AND cell_id = $2 AND tenant_id = $3"
+    assert conn.executed_params == ("done", "cell-1", "tenant-a")

@@ -14,6 +14,7 @@ rather than as its own attribution is exempted by hand there, with the reason.
 
 - Memory compaction now anchors `TierResult` and compact trace steps with pre-compaction source content and referenced artifact hashes (#3696). `TierResult` carries `source_content_hash` (SHA-256 over exact pre-compaction UTF-8 bytes) and `referenced_content_hashes` (mapping of referenced artifact paths to content hashes captured at compaction time, recording `"absent"` for missing files), which propagate to the `compact` `TraceStep` in the trace store and are checked via `verify_compacted_step` to detect and report post-compaction artifact modifications, deletions, or creations. Docs: [`docs/architecture/memory_tiers.md`](../architecture/memory_tiers.md).
 - The journal verifier (`verify_journal` / `verify_events`) is now covered by the mutation gate at 72.5% kill rate (#3654). Tests assert on each component of `JournalVerifyResult` — `chain_consistent`, `coverage`, `identity`, `count`, `divergent_index`, `head` — so that a change zeroing out the count or inverting a verdict would be caught. Every strict-mode validation guard is exercised with the row field deleted, replaced with the wrong type, or replaced with the empty string. The negative controls are discriminating: a corrupted journal returns the specific rejection (prev-hash break vs event-hash mismatch, chain divergence vs partial coverage), not a blanket "something is wrong", so a verifier that rejects everything would fail the tests. The survivors are in non-verification code paths: retention logic, helper functions, and error message formatting.
+- Absence-capable tools now emit a signed coverage record (file count, corpus digest, truncation status) that is anchored into the tamper-evident lineage chain and consulted by completion verification: a `glob_exists` or `file_contains` absence claim without a coverage record degrades to unverified rather than passing silently (#3769, #3770, #3771).
 - Volunteer tasks enforce `allowed_paths`, re-run the project's gates, and assemble the signed receipt (#4033). `finish_volunteer_task` takes the patch a run produced plus the project's manifest and returns either a `SignedResultBundle` or a `VolunteerRefusal` — never a bundle marked failed, because a signed bundle is a claim the work is acceptable and one that says otherwise in a boolean field is a misreading away from being treated as a pass. Scope is enforced before any gate subprocess starts, and a glob match is not the whole check: the same filesystem containment barrier the rest of the project uses refuses a path that is not repository-relative (`docs/../src/x.py` is a spelling `docs/**` matches) and a path that resolves out of the worktree through a symlinked component, and only then are the project's globs consulted through the one matcher shared with credential scoping. Matching stays case-sensitive on every platform, so a scope written for `src/` cannot be satisfied by `SRC/` on a case-insensitive filesystem. Gates run as argv under one wall-clock budget shared across them rather than one budget each, stop at the first failure, and take an environment built from the sandbox profile rather than inherited from the donor's shell. A passing run's bundle carries the manifest's own digest as `manifest_sha256` and the profile's digest as its sandbox identifier, continuing the manifest → profile → receipt chain, and its worker identity is derived from the signing key so the bundle cannot name one worker while the signature is by another. Refusals carry stable, append-only reason codes. Part of #3869. Docs: [`docs/reference/volunteer-manifest.md`](../reference/volunteer-manifest.md).
 - One answer to "which paths does this diff touch" (`bernstein.core.diff_paths`). The Tier-3 auto-heal cordon and volunteer scope enforcement both fail open on a path an extractor misses, so the extraction moved out of `autofix/tier3.py` into a shared module alongside `path_scope`, and gained the shapes it was missing: a content-preserving rename or copy, a mode change, and a binary file each touch a file while printing no hunk at all, and were previously invisible to the cordon. Quoted non-ASCII paths are decoded rather than handed to a matcher as escape sequences, and an ambiguous `diff --git` header contributes every candidate split — the extractor over-approximates on purpose, since a spurious path costs a readable refusal and a missing one costs an unchallenged write. `bernstein.core.autofix.tier3.extract_paths_from_unified_diff` still resolves for existing callers.
 - Parking a task now writes the grant-bound agent checkpoint the resume path has been checking for (#4043). Nothing in the shipped code produced an `AgentCheckpoint`, so the authority check `bernstein task resume` runs — recompute the grant hash from the role and refuse when the permission set has moved — had no input on a live run and passed by having nothing to inspect. `park_task` now writes the checkpoint after the suspend receipt exists, keyed per task rather than per adapter so two tasks parked on one adapter no longer evict each other, and hashes the same permissions the resume re-derives so the two sides agree. The role is read where it is actually recorded, the task log, and the owning run comes from `$BERNSTEIN_RUN_ID`; `--role` and `--parent-run-id` pin either explicitly. When no role can be sourced the checkpoint is written with an empty grant hash rather than one over the unrestricted default permission set, which the resume would re-derive identically — a checkpoint that reads as bound and can never refuse is worse than one that admits it is not bound. Part of #3649. Docs: [`docs/operations/durable-suspend-resume.md`](../operations/durable-suspend-resume.md).
@@ -24,6 +25,10 @@ rather than as its own attribution is exempted by hand there, with the reason.
 - Export SOC 2 evidence pack to configured storage sinks via `export_soc2_evidence_pack` under canonical keys (#4148).
 - Dashboard colour tokens record measured contrast ratios and are gated against WCAG AA thresholds dynamically from the stylesheet (#3589). Contrast ratios for all body text, metadata, semantic states, and pill variants are catalogued in [`docs/design/web-ui-inventory.md`](../design/web-ui-inventory.md) and enforced by `tests/unit/test_webui_contrast.py`.
 - PostgresTaskStore and BaseTaskStore declare parameterized limit and offset bounds on list_tasks (#4157). PostgresTaskStore.list_tasks mirrors TaskStore.list_tasks by accepting optional limit and offset integer bounds and parameterizing them into the SQL query (LIMIT $n OFFSET $n) to prevent unbounded row fetching across database-backed deployments.
+- `PostgresTaskStore.list_tasks()` now issues a bounded query even when the caller omits `limit` (#3813). The `limit`/`offset` support from #4157 still left the SQL unbounded by default, so a caller that forgot to pass `limit` fetched and constructed a `Task` for every row in the table. A missing `limit` now falls back to a documented default (`_LIST_TASKS_DEFAULT_LIMIT`); a caller that genuinely needs the full table pages through it by advancing `offset`.
+- Wire weekly SOC 2 evidence pack workflow export step to sink backend via `SOC2_EVIDENCE_SINK` secret (#4149).
+- Wave 2 of README translations adds 16 languages (`es`, `pt`, `de`, `fr`, `it`, `nl`, `pl`, `sv`, `fi`, `uk`, `tr`, `ar`, `he`, `id`, `vi`, `th`) under the hash-binding drift gate, bringing translated README coverage to 23 languages alongside the English source. Docs: [`docs/playbooks/readme-l10n.md`](../playbooks/readme-l10n.md).
+
 ## Security
 
 - The agent task-scope gate no longer depends on how FastAPI happens to store
@@ -88,6 +93,17 @@ rather than as its own attribution is exempted by hand there, with the reason.
   containment distinction #4095 recorded for the pid-file sites).
 
 - Health check task count is scoped to the caller's tenant (#4156).
+- `bernstein verify receipt` distinguishes the integrity-only and provenance
+  tiers for automation instead of leaving both to exit `0` (#4208). A CI gate
+  scripted as `verify receipt $f && deploy` with no `--public-key` configured
+  could not tell a provenance pass from an integrity-only pass that
+  authenticates nothing about the signer; `--require-provenance` now turns an
+  integrity-only pass into exit `3`, naming the tier actually reached, and
+  `--json` adds a `tier` field (`"provenance"` / `"integrity-only"` / `null`)
+  so a caller can read the tier without parsing the verdict prose. Both flags
+  default off, so existing scripts keep today's `0`/`1`/`2` behaviour on
+  either tier unless they opt in. Docs:
+  [`docs/operations/deterministic-replay.md`](../operations/deterministic-replay.md#signed-run-receipt-one-file-offline-verification).
 - Stall escalation produces a degraded terminal receipt on a missing or empty
   event journal instead of raising (#3737). The kill already happened in that
   case; refusing to build the receipt left nothing in the chain to tell
@@ -124,3 +140,20 @@ rather than as its own attribution is exempted by hand there, with the reason.
   call: no orchestrator path invokes it yet, which
   [`docs/concepts/lesson-persistence.md`](../concepts/lesson-persistence.md)
   records as the remaining gap.
+- Workspace merge order calculation is scoped to the caller's tenant (#4155).
+- `bernstein audit verify` reads the store and writes nothing to it, and the
+  daily seal now tells post-seal appends apart from a rewritten prefix (#4210,
+  #4201). The seal is pinned at run finalization while the log keeps growing —
+  a run closing after its own seal appends one more row — and the pillar bound
+  the whole current file, so every re-verification of a finished, untouched run
+  reported `TAMPERED` and exited non-zero. Routine use of a red verdict is how
+  a real one gets ignored. Each leaf is now recomputed over the byte prefix the
+  seal pinned, the root is re-derived from those bytes and compared against the
+  pinned root, and the verdict names the intact prefix and the post-seal row
+  count separately. The fail-closed direction is unchanged: an edit inside the
+  sealed prefix, or a segment shorter than its pin, is still `TAMPERED` with a
+  non-zero exit. Separately, seven verification pillars resolved the audit key
+  through the create-if-absent loader, so verifying a store whose key was
+  missing minted one — key material a fresh chain cannot authenticate, written
+  by the tool whose whole claim is that it only reads. They now use the
+  load-only resolver and report a missing key as a named skip.
