@@ -80,18 +80,6 @@ jobs:
             --threshold-pct "${THRESHOLD_PCT}" \
             --lookback-hours "${LOOKBACK_HOURS}"
 
-      - name: Report insufficient sample
-        if: steps.compute.outputs.insufficient_sample == 'true'
-        env:
-          TOTAL: ${{ steps.compute.outputs.total }}
-        run: |
-          echo "::warning::Insufficient sample size (${TOTAL} runs, need 10). Leaving trunk-unstable marker untouched."
-          {
-            echo "## Trunk health SLO"
-            echo ""
-            echo "Insufficient sample size: only ${TOTAL} CI runs in the window. Marker left untouched."
-          } >> "${GITHUB_STEP_SUMMARY}"
-
       - name: Toggle the trunk-unstable marker issue
         env:
           GH_TOKEN: ${{ github.token }}
@@ -160,3 +148,12 @@ jobs:
             echo "| insufficient sample | ${INSUFFICIENT} |"
             echo "| trunk-unstable marker | $([ "${UNSTABLE}" = "true" ] && [ "${INSUFFICIENT}" != "true" ] && echo open || echo closed) |"
           } >> "${GITHUB_STEP_SUMMARY}"
+
+          # Say plainly what a thin window did and did not decide, so the
+          # summary is not read as a measured all-clear.
+          if [ "${INSUFFICIENT}" = "true" ]; then
+            {
+              echo ""
+              echo "Only ${TOTAL} CI runs in the window (need 10), so the red-rate above is not a verdict. No marker is opened on a sample this thin, and any marker already open is released for lack of evidence rather than held: a quiet trunk must not be able to latch merges shut."
+            } >> "${GITHUB_STEP_SUMMARY}"
+          fi
