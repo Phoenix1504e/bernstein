@@ -51,11 +51,19 @@ jobs:
       actions: read
       # The andon flag is a marker issue (opened on red, closed on green).
       issues: write
-    steps:
+      steps:
       - name: Harden runner (audit mode)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
           egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Compute red-rate
         id: compute
@@ -65,53 +73,27 @@ jobs:
           THRESHOLD_PCT: ${{ github.event.inputs.threshold_pct || '5' }}
           LOOKBACK_HOURS: ${{ github.event.inputs.lookback_hours || '24' }}
         run: |
-          set -euo pipefail
+          python scripts/trunk_health_slo.py \
+            --repo "${REPO}" \
+            --token "${GH_TOKEN}" \
+            --threshold-pct "${THRESHOLD_PCT}" \
+            --lookback-hours "${LOOKBACK_HOURS}"
 
-          SINCE=$(date -u -d "${LOOKBACK_HOURS} hours ago" +'%Y-%m-%dT%H:%M:%SZ' 2>/dev/null \
-            || date -u -v-"${LOOKBACK_HOURS}"H +'%Y-%m-%dT%H:%M:%SZ')
-          export SINCE
-
-          echo "Computing red-rate on main since ${SINCE}"
-
-          # Pull last 100 CI workflow runs on main; filter to the
-          # primary "CI" workflow only to avoid scoring scheduled
-          # housekeeping runs as outages.
-          ALL_JSON=$(gh api -X GET "repos/${REPO}/actions/runs" \
-            -f branch=main \
-            -f per_page=100 \
-            --jq '[
-              .workflow_runs[]
-              | select(.name == "CI")
-              | select(.created_at >= env.SINCE)
-              | {conclusion, sha: .head_sha, url: .html_url}
-            ]')
-
-          TOTAL=$(printf '%s' "${ALL_JSON}" | jq 'length')
-          if [ "${TOTAL}" = "0" ]; then
-            echo "No CI runs on main in window. Treating as healthy."
-            UNSTABLE=false
-            RED=0
-            RED_PCT=0
-          else
-            RED=$(printf '%s' "${ALL_JSON}" | jq '[.[] | select(.conclusion == "failure" or .conclusion == "timed_out")] | length')
-            # Integer percentage: enough resolution for the threshold.
-            RED_PCT=$(( (RED * 100) / TOTAL ))
-            if [ "${RED_PCT}" -ge "${THRESHOLD_PCT}" ]; then
-              UNSTABLE=true
-            else
-              UNSTABLE=false
-            fi
-          fi
-
-          echo "TOTAL=${TOTAL} RED=${RED} RED_PCT=${RED_PCT}% THRESHOLD=${THRESHOLD_PCT}% UNSTABLE=${UNSTABLE}"
+      - name: Report insufficient sample
+        if: steps.compute.outputs.insufficient_sample == 'true'
+        run: |
+          echo "::warning::Insufficient sample size (${TOTAL} runs, need ${MIN}). Leaving trunk-unstable marker untouched."
           {
-            echo "unstable=${UNSTABLE}"
-            echo "red_pct=${RED_PCT}"
-            echo "red=${RED}"
-            echo "total=${TOTAL}"
-          } >> "${GITHUB_OUTPUT}"
+            echo "## Trunk health SLO"
+            echo ""
+            echo "Insufficient sample size: only ${TOTAL} CI runs in the window. Marker left untouched."
+          } >> "${GITHUB_STEP_SUMMARY}"
+        env:
+          TOTAL: ${{ steps.compute.outputs.total }}
+          MIN: "10"
 
       - name: Toggle the trunk-unstable marker issue
+        if: steps.compute.outputs.insufficient_sample != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
