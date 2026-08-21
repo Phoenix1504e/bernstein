@@ -51,7 +51,7 @@ jobs:
       actions: read
       # The andon flag is a marker issue (opened on red, closed on green).
       issues: write
-      steps:
+    steps:
       - name: Harden runner (audit mode)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
         with:
@@ -81,16 +81,15 @@ jobs:
 
       - name: Report insufficient sample
         if: steps.compute.outputs.insufficient_sample == 'true'
+        env:
+          TOTAL: ${{ steps.compute.outputs.total }}
         run: |
-          echo "::warning::Insufficient sample size (${TOTAL} runs, need ${MIN}). Leaving trunk-unstable marker untouched."
+          echo "::warning::Insufficient sample size (${TOTAL} runs, need 10). Leaving trunk-unstable marker untouched."
           {
             echo "## Trunk health SLO"
             echo ""
             echo "Insufficient sample size: only ${TOTAL} CI runs in the window. Marker left untouched."
           } >> "${GITHUB_STEP_SUMMARY}"
-        env:
-          TOTAL: ${{ steps.compute.outputs.total }}
-          MIN: "10"
 
       - name: Toggle the trunk-unstable marker issue
         if: steps.compute.outputs.insufficient_sample != 'true'
