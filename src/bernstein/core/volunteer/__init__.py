@@ -108,6 +108,15 @@ from bernstein.core.volunteer.wall_clock import (
     run_under_wall_clock,
 )
 
+from bernstein.core.volunteer.registry import (
+    BrowseResult,
+    DroppedEntry,
+    HTTPResponse,
+    HTTPTransport,
+    IndexEntry,
+    browse_indexes,
+)
+
 __all__ = [
     "ALLOWED_REPO_SCHEMES",
     "BACKEND_PREFERENCE",
