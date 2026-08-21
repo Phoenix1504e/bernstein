@@ -108,6 +108,7 @@ def verify_cmd(repo_root: Path, as_json: bool) -> None:
 
     _print_report(manifest, manifest_path, effective_egress(manifest), unenforced)
 
+
 @volunteer_group.command("browse")
 @click.option(
     "--index",
@@ -140,7 +141,8 @@ def browse_cmd(
     Examples::
 
         bernstein volunteer browse --index https://example.test/index.json
-        bernstein volunteer browse --index https://a.test/i.json --index https://b.test/i.json --local-ok --language python
+        bernstein volunteer browse --index https://a.test/i.json --index https://b.test/i.json \\
+            --local-ok --language python
         bernstein volunteer browse --verbose
     """
     from bernstein.core.volunteer.registry import browse_indexes
@@ -173,10 +175,7 @@ def browse_cmd(
                 }
                 for r in joinable
             ],
-            "dropped": [
-                {"repo_url": d.repo_url, "reason": d.reason}
-                for d in dropped
-            ] if verbose else [],
+            "dropped": [{"repo_url": d.repo_url, "reason": d.reason} for d in dropped] if verbose else [],
         }
         click.echo(json.dumps(payload, indent=2))
         return
@@ -198,6 +197,7 @@ def browse_cmd(
         click.echo("\nDropped:")
         for d in dropped:
             click.echo(f"  {d.repo_url}: {d.reason}")
+
 
 def _report(
     manifest: VolunteerManifest,
