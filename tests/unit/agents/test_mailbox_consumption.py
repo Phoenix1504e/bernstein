@@ -191,8 +191,10 @@ def test_cursor_survives_audit_archival(tmp_path: Path) -> None:
     audit_dir = workdir / ".sdd" / "audit"
     segments = sorted(audit_dir.glob("*.jsonl"))
     assert segments, "expected the consumption record to have been written"
-    for segment in segments:
-        segment.rename(audit_dir / "2020-01-01.jsonl")
+    # Distinct target dates: a run that straddles UTC midnight produces two
+    # segments, and renaming both onto one name would discard a record.
+    for index, segment in enumerate(segments):
+        segment.rename(audit_dir / f"2020-01-{index + 1:02d}.jsonl")
 
     result = AuditLog(audit_dir=audit_dir).archive(RetentionPolicy(retention_days=1))
     assert result.archived, "expected the aged segment to be archived"
