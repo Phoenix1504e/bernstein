@@ -17,9 +17,8 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from bernstein.core.volunteer.claim import GhRunner, _default_runner, repo_slug
-
 from bernstein.core.git.git_pr import push_head_as
+from bernstein.core.volunteer.claim import GhRunner, _default_runner, repo_slug
 
 if TYPE_CHECKING:
     from bernstein.core.security.result_receipt_bundle import (
