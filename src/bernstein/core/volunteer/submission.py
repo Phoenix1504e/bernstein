@@ -277,7 +277,14 @@ def submit_volunteer_pr(
     )
     title = build_volunteer_pr_title(bundle.task)
 
-    # 4. Create PR via GhRunner (donor's own ``gh auth``).
+    # 4. Push branch to remote (donor's fork must already be configured as 'origin')
+    from bernstein.core.git.git_pr import push_head_as
+
+    push_result = push_head_as(cwd, branch)
+    if not push_result.ok:
+        raise SubmissionError(f"git push failed: {push_result.stderr.strip()}")
+
+    # 5. Create PR via GhRunner (donor's own ``gh auth``).
     cmd = ["pr", "create", "--title", title, "--body", body, "--head", branch, "--base", base]
     if draft:
         cmd.append("--draft")
