@@ -31,10 +31,10 @@ log "Admin user created by gitea container startup."
 
 # ── Get API token ─────────────────────────────────────────────────────────
 log "Generating API token..."
-TOKEN_JSON=$(curl -sf -X POST "${GITEA_URL}/api/v1/users/${ADMIN_USER}/tokens" \
-    -u "${ADMIN_USER}:${ADMIN_PASS}" \
+TOKEN_JSON=$(curl -sf -X POST "${GITEA_URL}/api/v1/repos" \
+    -H "Authorization: token ${TOKEN}" \
     -H "Content-Type: application/json" \
-    -d '{"name": "volunteer-rig"}' 2>/dev/null) || fail "Failed to create API token (auth 401?)"
+    -d "{\"name\": \"${REPO_NAME}\", \"private\": false, \"auto_init\": true}" > /dev/null 2>&1 || true
 
 TOKEN=$(echo "${TOKEN_JSON}" | jq -r '.sha1')
 if [[ -z "${TOKEN}" || "${TOKEN}" == "null" ]]; then
@@ -49,7 +49,7 @@ curl -sf -X POST "${GITEA_URL}/api/v1/repos" \
     -H "Content-Type: application/json" \
     -d "{\"name\": \"${REPO_NAME}\", \"private\": false}" > /dev/null 2>&1 || true
 
-# ─<arg_value> Push fixture files ─────────────────────────────────────────────────────
+# ── Push fixture files ─────────────────────────────────────────────────────
 log "Cloning fixture repo..."
 cd /tmp
 rm -rf "${REPO_NAME}"
@@ -66,7 +66,8 @@ git config user.email "rig@bernstein.test"
 git config user.name "Volunteer Rig"
 git add -A
 git commit -m "Seed fixture project with volunteer manifest" 2>/dev/null || true
-git push origin main 2>/dev/null || true
+git branch -M main
+git push origin main
 log "Fixture repo seeded."
 
 # ── Create label ──────────────────────────────────────────────────────────

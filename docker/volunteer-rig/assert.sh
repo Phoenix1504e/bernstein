@@ -30,4 +30,14 @@ if [[ "${COUNT}" -ne 2 ]]; then
 fi
 log "PASS: Found ${COUNT} issues with ${LABEL_NAME} label."
 
+# Assert: manifest is fetchable and valid
+log "Fetching manifest from repo..."
+MANIFEST=$(curl -sf "${GITEA_URL}/api/v1/repos/${REPO_OWNER}/${REPO_NAME}/raw/.bernstein/volunteer.json?ref=main" \
+    -H "Authorization: token ${TOKEN}" 2>/dev/null) || fail "Failed to fetch manifest from repo"
+
+if ! echo "${MANIFEST}" | jq -e '.license' > /dev/null 2>&1; then
+    fail "Manifest is not valid JSON or missing license field"
+fi
+log "PASS: Manifest is fetchable and valid."
+
 log "All asserts passed."

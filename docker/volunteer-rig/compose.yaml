@@ -7,6 +7,9 @@
 # Usage:
 #   docker compose -f docker/volunteer-rig/compose.yaml -p volunteer-rig up --build --abort-on-container-exit
 #   docker compose -f docker/volunteer-rig/compose.yaml -p volunteer-rig down -v
+#
+# Note: `down -v` is required between runs to avoid duplicate issues.
+#   docker compose -f docker/volunteer-rig/compose.yaml -p volunteer-rig down -v
 
 name: volunteer-rig
 
