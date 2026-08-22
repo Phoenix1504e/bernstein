@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING
 
 from bernstein.core.volunteer.claim import GhRunner, _default_runner, repo_slug
 
+from bernstein.core.git.git_pr import push_head_as
+
 if TYPE_CHECKING:
     from bernstein.core.security.result_receipt_bundle import (
         GateResult,
@@ -278,7 +280,6 @@ def submit_volunteer_pr(
     title = build_volunteer_pr_title(bundle.task)
 
     # 4. Push branch to remote (donor's fork must already be configured as 'origin')
-    from bernstein.core.git.git_pr import push_head_as
 
     push_result = push_head_as(cwd, branch)
     if not push_result.ok:
