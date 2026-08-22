@@ -29,6 +29,8 @@ import uuid
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, Literal, cast
 
+import asyncpg  # type: ignore[import-not-found]
+
 from bernstein.core.persistence.store import BaseTaskStore, RoleSummary, StatusSummary
 from bernstein.core.tasks.models import (
     CompletionSignal,
@@ -366,7 +368,7 @@ class PostgresTaskStore(BaseTaskStore):
             priority=req.priority,
             scope=Scope(req.scope),
             complexity=Complexity(req.complexity),
-            estimated_minutes=req.estimated_minutes,
+            estimated_minutes=req.estimated_minutes or 0,
             depends_on=req.depends_on,
             owned_files=req.owned_files,
             cell_id=req.cell_id,
@@ -811,6 +813,10 @@ class PostgresTaskStore(BaseTaskStore):
                 duration_seconds=row["duration_seconds"],
                 result_summary=row["result_summary"],
                 cost_usd=row["cost_usd"],
+                tenant_id="",
+                assigned_agent="",
+                owned_files=[],
+                claimed_by_session="",
             )
             for row in reversed(rows)
         ]
