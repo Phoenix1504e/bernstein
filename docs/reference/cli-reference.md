@@ -110,6 +110,7 @@ The full flag list is large (see `bernstein run --help` and `cli/run_bootstrap.p
 | `--plan-only` | off | Show plan, do not run agents. |
 | `--auto-pr` | off | Auto-open a GitHub PR on completion. |
 | `--task PATTERN` | none | Run only matching backlog tasks. |
+| `--wait [SECONDS]` | off | Block until the run reaches a terminal state and exit with its outcome. Optional ceiling in seconds, default 3600. |
 | `--port N` | 8052 | Task server port. |
 | `-v / -q` | off | Verbosity. |
 
@@ -1418,9 +1419,10 @@ See [`reference/mcp-catalog.md`](mcp-catalog.md) for the full reference.
 |---|---|---|
 | `--session-id ID` | most recent completed session | Session to publish. |
 | `--base BRANCH` | main | Base branch for the pull request. |
+| `--issue N\|URL` | none | Title the PR from a GitHub issue and open its body with `Closes #N`. Reads the issue, so `--dry-run` makes that one request. |
 | `--title TEXT` | auto-generated | Override the PR title. |
 | `--draft` | off | Open as a draft PR. |
-| `--dry-run` | off | Print the would-be title and body without calling `gh`. |
+| `--dry-run` | off | Print the would-be title and body without calling `gh`. Reads the issue when `--issue` is given. |
 | `--no-push` | off | Skip `git push`; assume the branch is already on origin. |
 
 (`cli/commands/pr_cmd.py:183-220`.)
