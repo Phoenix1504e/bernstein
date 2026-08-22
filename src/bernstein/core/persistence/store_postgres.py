@@ -60,6 +60,7 @@ logger = logging.getLogger(__name__)
 # ``asyncpg`` is an optional dependency - only required for postgres mode.
 try:
     import asyncpg  # type: ignore[import-not-found]
+
     _has_asyncpg = True
 except ModuleNotFoundError:
     asyncpg = None  # type: ignore[assignment]
