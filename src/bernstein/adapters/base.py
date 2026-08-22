@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -38,6 +39,11 @@ DEFAULT_TIMEOUT_SECONDS: int = 1800
 
 # Grace period between SIGTERM and SIGKILL (seconds).
 _SIGTERM_GRACE_SECONDS: int = 30
+#: First dotted-numeric token in a ``--version`` blob. Possessive quantifiers
+#: plus the digit-run anchor keep the scan linear on untrusted subprocess
+#: output; see the matching constant in ``adapters/security_floor.py``.
+VERSION_TOKEN_RE = re.compile(r"(?<!\d)\d++(?:\.\d++){1,3}")
+
 
 # ---------------------------------------------------------------------------
 # Mutation-observability capability (issue #2507)
@@ -338,6 +344,20 @@ class WaitableProcess(Protocol):
         """Wait for process completion and return its exit status."""
 
 
+#: Process-environment channel carrying the orchestrator root's heartbeat
+#: directory down to ``bernstein-worker``.
+#:
+#: Adapters derive every runtime path from the ``workdir`` they are spawned
+#: into, which under worktree isolation is the agent's own worktree -- while
+#: the orchestrator reads agent state from the project root. A heartbeat
+#: written under the worktree is therefore never observed, and the agent is
+#: killed at the stale threshold with nothing in the log pointing at why
+#: (issue #4330). The root travels through the environment, the same channel
+#: ``BERNSTEIN_RUN_ID`` uses to reach agent subprocesses, so the ~50 adapter
+#: call sites do not each have to learn the difference.
+HEARTBEAT_DIR_ENV = "BERNSTEIN_HEARTBEAT_DIR"
+
+
 def build_worker_cmd(
     cmd: list[str],
     *,
@@ -347,6 +367,7 @@ def build_worker_cmd(
     workdir: Path,
     log_path: Path,
     model: str = "",
+    heartbeat_dir: Path | None = None,
 ) -> list[str]:
     """Wrap a CLI command with bernstein-worker for process visibility.
 
@@ -361,10 +382,16 @@ def build_worker_cmd(
         workdir: Project root directory.
         log_path: Path to the agent log file.
         model: Model name for metadata display.
+        heartbeat_dir: Directory the orchestrator polls for heartbeats.
+            Defaults to whatever the orchestrator exported in
+            :data:`HEARTBEAT_DIR_ENV`; when neither is set the flag is
+            omitted and the worker falls back to ``--workdir``, which is
+            what a standalone ``bernstein-worker`` invocation wants.
 
     Returns:
         Wrapped command list.
     """
+    resolved_heartbeat_dir = str(heartbeat_dir) if heartbeat_dir is not None else os.environ.get(HEARTBEAT_DIR_ENV, "")
     return [
         sys.executable,
         "-m",
@@ -381,6 +408,7 @@ def build_worker_cmd(
         str(log_path),
         "--model",
         model,
+        *(["--heartbeat-dir", resolved_heartbeat_dir] if resolved_heartbeat_dir else []),
         "--",
         *cmd,
     ]

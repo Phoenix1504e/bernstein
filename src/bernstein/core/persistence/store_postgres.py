@@ -169,24 +169,57 @@ WHERE  t.id = (
 RETURNING *
 """
 
-_CLAIM_BY_ID_SQL = """
+# Shared by every single-row claim query below (by-id, its CAS variant, and
+# batch) so each one gates on ``depends_on`` exactly like ``_CLAIM_NEXT_SQL``
+# above - the column names are unqualified because they resolve against the
+# row the enclosing UPDATE targets, same as a plain WHERE clause would.
+#
+# Before this fragment existed, only ``claim_next`` carried the dependency
+# predicate: a caller that claimed a specific id, or a batch of ids, bypassed
+# unmet ``depends_on`` entirely even though the in-memory store's equivalent
+# methods already gated it (#4311). Keeping the predicate in one place is
+# what stops the two paths drifting apart again.
+_DEPENDS_ON_SATISFIED_SQL = """(
+    depends_on = '{}'::text[]
+    OR NOT EXISTS (
+        SELECT 1
+        FROM   unnest(depends_on) AS dep_id
+        WHERE  NOT EXISTS (
+            SELECT 1
+            FROM   tasks AS d
+            WHERE  d.id = dep_id
+            AND    d.status = 'done'
+        )
+    )
+)"""
+
+_CLAIM_BY_ID_SQL = f"""
 UPDATE tasks
 SET    status  = 'claimed',
        version = version + 1
 WHERE  id = $1
 AND    status = 'open'
+AND    {_DEPENDS_ON_SATISFIED_SQL}
 RETURNING *
 """
 
-_CLAIM_BY_ID_CAS_SQL = """
+_CLAIM_BY_ID_CAS_SQL = f"""
 UPDATE tasks
 SET    status  = 'claimed',
        version = version + 1
 WHERE  id      = $1
 AND    version = $2
 AND    status  = 'open'
+AND    {_DEPENDS_ON_SATISFIED_SQL}
 RETURNING *
 """
+
+# list_tasks() always issues a SQL LIMIT, even when the caller passes none -
+# an omitted limit falls back to this ceiling rather than fetching every
+# matching row. A caller that genuinely needs the full table pages through
+# it by advancing offset in a loop, or passes an explicit limit above the
+# table size.
+_LIST_TASKS_DEFAULT_LIMIT = 500
 
 
 # ---------------------------------------------------------------------------
@@ -491,40 +524,39 @@ class PostgresTaskStore(BaseTaskStore):
         When ``tenant_id`` is provided the tenant scope check is folded
         into the same UPDATE statement so tasks outside the scope are
         reported as failed rather than silently claimed, even under
-        concurrent tenant rewrites.
+        concurrent tenant rewrites.  ``agent_role`` is folded in the same
+        way, so role-locked claiming holds here exactly as it does in
+        ``claim_next`` - a task belonging to another role is reported as
+        failed instead of being claimed.
+
+        Each UPDATE also carries the ``depends_on`` predicate (see
+        ``_DEPENDS_ON_SATISFIED_SQL``), so an id whose dependencies are not
+        all ``done`` is reported as failed rather than claimed.
         """
         claimed: list[str] = []
         failed: list[str] = []
         assert self._pool is not None
         async with self._pool.acquire() as conn, conn.transaction():
             for task_id in task_ids:
-                if tenant_id is None:
-                    row = await conn.fetchrow(
-                        """
-                            UPDATE tasks
-                            SET    status         = 'claimed',
-                                   assigned_agent = $2,
-                                   version        = version + 1
-                            WHERE  id = $1 AND status = 'open'
-                            RETURNING id
-                            """,
-                        task_id,
-                        agent_id,
-                    )
-                else:
-                    row = await conn.fetchrow(
-                        """
-                            UPDATE tasks
-                            SET    status         = 'claimed',
-                                   assigned_agent = $2,
-                                   version        = version + 1
-                            WHERE  id = $1 AND status = 'open' AND tenant_id = $3
-                            RETURNING id
-                            """,
-                        task_id,
-                        agent_id,
-                        tenant_id,
-                    )
+                params: list[Any] = [task_id, agent_id]
+                predicates = ["id = $1", "status = 'open'", _DEPENDS_ON_SATISFIED_SQL]
+                if tenant_id is not None:
+                    params.append(tenant_id)
+                    predicates.append(f"tenant_id = ${len(params)}")
+                if agent_role is not None:
+                    params.append(agent_role)
+                    predicates.append(f"role = ${len(params)}")
+                row = await conn.fetchrow(
+                    f"""
+                        UPDATE tasks
+                        SET    status         = 'claimed',
+                               assigned_agent = $2,
+                               version        = version + 1
+                        WHERE  {" AND ".join(predicates)}
+                        RETURNING id
+                        """,
+                    *params,
+                )
                 if row is not None:
                     claimed.append(task_id)
                 else:
@@ -698,10 +730,12 @@ class PostgresTaskStore(BaseTaskStore):
         Args:
             status: If provided, only tasks with this status are returned.
             cell_id: If provided, only tasks in this cell are returned.
-            limit: If provided, return at most this many tasks after filtering,
-                applied as SQL ``LIMIT``. If ``None`` (the default), no bound is
-                applied and every matching row is fetched — callers that need a
-                safety ceiling on large tables must pass an explicit limit.
+            limit: Return at most this many tasks after filtering, applied as
+                SQL ``LIMIT``. If ``None`` (the default), falls back to
+                ``_LIST_TASKS_DEFAULT_LIMIT`` — the fetch is always bounded, a
+                caller that needs the full table pages through it by
+                advancing ``offset`` in a loop, or passes an explicit limit
+                above the table size.
             offset: If provided, skip this many tasks after filtering, applied
                 as SQL ``OFFSET``. Combine with ``limit`` for paginated iteration.
 
@@ -727,10 +761,10 @@ class PostgresTaskStore(BaseTaskStore):
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         sql = f"SELECT * FROM tasks {where} ORDER BY priority, created_at"
 
-        if limit is not None:
-            sql += f" LIMIT ${param_n}"
-            params.append(limit)
-            param_n += 1
+        effective_limit = limit if limit is not None else _LIST_TASKS_DEFAULT_LIMIT
+        sql += f" LIMIT ${param_n}"
+        params.append(effective_limit)
+        param_n += 1
 
         if offset is not None:
             sql += f" OFFSET ${param_n}"
@@ -746,6 +780,54 @@ class PostgresTaskStore(BaseTaskStore):
                 done_ids = {r["id"] for r in done_row}
                 tasks = [t for t in tasks if all(dep in done_ids for dep in t.depends_on)]
         return tasks
+
+    async def count_tasks(
+        self,
+        status: str | None = None,
+        cell_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> int:
+        """Return task count, optionally filtered, issuing SELECT COUNT(*) FROM tasks."""
+        assert self._pool is not None
+
+        conditions: list[str] = []
+        params: list[Any] = []
+        param_n = 1
+
+        if status is not None:
+            conditions.append(f"status = ${param_n}")
+            params.append(status)
+            param_n += 1
+
+        if cell_id is not None:
+            conditions.append(f"cell_id = ${param_n}")
+            params.append(cell_id)
+            param_n += 1
+
+        if tenant_id is not None:
+            conditions.append(f"tenant_id = ${param_n}")
+            params.append(tenant_id)
+            param_n += 1
+
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+        async with self._pool.acquire() as conn:
+            if status == "open":
+                sql = f"SELECT * FROM tasks {where} ORDER BY priority, created_at"
+                rows = await conn.fetch(sql, *params)
+                done_rows = await conn.fetch("SELECT id FROM tasks WHERE status='done'")
+                done_ids = {r["id"] for r in done_rows}
+                count = 0
+                for r in rows:
+                    raw_deps = r.get("depends_on")
+                    deps = json.loads(raw_deps) if isinstance(raw_deps, str) else (raw_deps or [])
+                    if all(dep in done_ids for dep in deps):
+                        count += 1
+                return count
+
+            sql = f"SELECT COUNT(*) FROM tasks {where}"
+            val = await conn.fetchval(sql, *params)
+            return int(val or 0)
 
     async def get_task(self, task_id: str) -> Task | None:
         """Return a single task by ID."""
