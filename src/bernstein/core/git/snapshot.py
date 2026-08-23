@@ -51,7 +51,6 @@ overhead can disable the hook via configuration.
 
 from __future__ import annotations
 
-import builtins
 import hashlib
 import json
 import logging
@@ -59,8 +58,15 @@ import re
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from bernstein.core.git.git_basic import run_git
+
+if TYPE_CHECKING:
+    # Only reachable from annotations: ``SnapshotStore.list`` shadows the
+    # builtin inside the class body, so return types have to name it
+    # explicitly.
+    import builtins
 
 logger = logging.getLogger(__name__)
 
