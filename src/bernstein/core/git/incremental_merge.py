@@ -41,7 +41,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from bernstein.core.git.git_basic import run_git
 
@@ -125,9 +125,9 @@ class IncrementalMergeState:
         """Deserialise from a dict read from the state file."""
         return cls(
             session_id=str(data.get("session_id", "")),
-            merged_files=list(data.get("merged_files", [])),  # type: ignore[arg-type]
-            merge_commits=list(data.get("merge_commits", [])),  # type: ignore[arg-type]
-            last_merged_ts=float(data.get("last_merged_ts", 0.0)),  # type: ignore[arg-type]
+            merged_files=list(cast("list[str]", data.get("merged_files", []))),
+            merge_commits=list(cast("list[str]", data.get("merge_commits", []))),
+            last_merged_ts=float(cast(float, data.get("last_merged_ts", 0.0))),
         )
 
 
