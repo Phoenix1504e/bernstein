@@ -5977,10 +5977,11 @@ class TestAdaptivePollingBackoff:
         orch = self._make_orch(tmp_path)
         assert hasattr(orch, "_idle_multiplier")
         assert orch._idle_multiplier == 1
-        
+
     def test_diagnose_post_loop_wait(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Temporary diagnostic to capture the 0.05s post-loop sleep stack trace."""
         import traceback
+
         import bernstein.core.orchestrator as _orch_mod
 
         sleep_calls: list[tuple[float, traceback.StackSummary]] = []
@@ -6004,7 +6005,7 @@ class TestAdaptivePollingBackoff:
         monkeypatch.setattr(orch, "_has_active_agents", lambda: False)
         monkeypatch.setattr(orch, "_drain_before_cleanup", lambda: None)
         monkeypatch.setattr(orch, "_cleanup", lambda: None)
-        
+
         orch.run()
 
         with open("sleep_trace.log", "w") as f:
@@ -6014,7 +6015,7 @@ class TestAdaptivePollingBackoff:
                 if dur <= 1.0:
                     f.write(f"--- SLEEP {dur:.4f}s ---\n")
                     f.write("".join(traceback.format_list(stack)))
-                    break  # We only need the first frame to identify the call    
+                    break  # We only need the first frame to identify the call
 
 
 # --- Reverse task-to-session index ---
