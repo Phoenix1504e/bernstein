@@ -1999,8 +1999,10 @@ class TestFileOwnership:
         adapter.is_alive.return_value = False  # process died
         orch = _build_orchestrator(tmp_path, transport, adapter=adapter)
 
-        # Pre-populate ownership
-        orch._file_ownership["src/main.py"] = "backend-owner"
+        # Pre-claim through the lock manager, which is the only writer of
+        # ownership: `_file_ownership` is a read-only projection of it, so an
+        # assignment here would raise rather than seed anything.
+        orch._lock_manager.acquire(["src/main.py"], agent_id="backend-owner", task_id="T-own", task_title="owns main")
         session = AgentSession(
             id="backend-owner",
             role="backend",
@@ -2068,7 +2070,13 @@ class TestFileOwnership:
         )
         orch = _build_orchestrator(tmp_path, transport, adapter=adapter, config=config)
 
-        orch._file_ownership["src/owned.py"] = "backend-stale"
+        # Use lock_manager to acquire ownership (property is now read-only)
+        orch._lock_manager.acquire(
+            ["src/owned.py"],
+            agent_id="backend-stale",
+            task_id="T-stale",
+            task_title="Stale task",
+        )
         session = AgentSession(
             id="backend-stale",
             role="backend",
@@ -3133,9 +3141,16 @@ class TestDeadAgentFileOwnershipEdgeCases:
         adapter.is_alive.return_value = False
         orch = _build_orchestrator(tmp_path, transport, adapter=adapter)
 
-        # Pre-claim two files for the dying agent
-        orch._file_ownership["src/main.py"] = "backend-dying"
-        orch._file_ownership["src/utils.py"] = "backend-dying"
+        # Pre-claim two files for the dying agent, through the lock manager --
+        # the projection is read-only. Assigning into it used to seed nothing
+        # at all, which made the post-condition below vacuously true: the
+        # entries were "released" because they had never been claimed.
+        orch._lock_manager.acquire(
+            ["src/main.py", "src/utils.py"],
+            agent_id="backend-dying",
+            task_id="T-dying",
+            task_title="owns two files",
+        )
 
         session = AgentSession(
             id="backend-dying",
@@ -5905,9 +5920,8 @@ class TestAdaptivePollingBackoff:
     def test_idle_ticks_double_sleep_up_to_30s(self, tmp_path: Path, monkeypatch: object) -> None:
         orch = self._make_orch(tmp_path, poll_interval_s=3)
         sleep_calls: list[float] = []
-        import bernstein.core.orchestrator as _orch_mod
 
-        monkeypatch.setattr(_orch_mod.time, "sleep", lambda s: sleep_calls.append(float(s)))
+        monkeypatch.setattr(orch, "_pace", lambda s: sleep_calls.append(float(s)))
 
         call_count = 0
 
@@ -5924,20 +5938,23 @@ class TestAdaptivePollingBackoff:
         monkeypatch.setattr(orch, "_cleanup", lambda: None)
         orch.run()
 
-        # After each idle tick, sleep doubles: 6, 12, 24, 24 (cap at 8x), 24
-        assert len(sleep_calls) > 0
-        assert sleep_calls[0] == pytest.approx(6.0)
-        assert sleep_calls[1] == pytest.approx(12.0)
-        assert sleep_calls[2] == pytest.approx(24.0)
-        assert sleep_calls[3] == pytest.approx(24.0)
-        assert sleep_calls[4] == pytest.approx(24.0)
+        # After each idle tick, sleep doubles: 6, 12, 24, 24 (cap at 8x), 24.
+        # ``_pace`` is the loop's own seam, so this list is the schedule and
+        # nothing else - no sleep performed elsewhere in the process can
+        # enter it.
+        assert sleep_calls == [
+            pytest.approx(6.0),
+            pytest.approx(12.0),
+            pytest.approx(24.0),
+            pytest.approx(24.0),
+            pytest.approx(24.0),
+        ]
 
     def test_active_tick_resets_sleep_to_poll_interval(self, tmp_path: Path, monkeypatch: object) -> None:
         orch = self._make_orch(tmp_path, poll_interval_s=3)
         sleep_calls: list[float] = []
-        import bernstein.core.orchestrator as _orch_mod
 
-        monkeypatch.setattr(_orch_mod.time, "sleep", lambda s: sleep_calls.append(float(s)))
+        monkeypatch.setattr(orch, "_pace", lambda s: sleep_calls.append(float(s)))
 
         call_count = 0
 
@@ -5962,16 +5979,43 @@ class TestAdaptivePollingBackoff:
 
         # tick 1 (idle) → sleep 6, tick 2 (idle) → sleep 12,
         # tick 3 (active, resets) → sleep 3, tick 4 (idle, stops loop) → sleep 6
-        #
-        # By index rather than by equality on the whole list, the way the
-        # sibling test above already does it. `time.sleep` is one object
-        # shared by the whole process, so patching it here records every
-        # sleep anything performs while `run()` is on the stack - including
-        # a lock-acquire loop in the post-loop path, which under a
-        # no-op sleep spins its full real-time deadline and appended six
-        # thousand entries. The subject of this test is the polling
-        # schedule the loop chooses, and that is the first four.
-        assert sleep_calls[:4] == [6.0, 12.0, 3.0, 6.0]
+        assert sleep_calls == [6.0, 12.0, 3.0, 6.0]
+
+    def test_pacing_record_excludes_sleeps_the_loop_did_not_perform(self, tmp_path: Path, monkeypatch: object) -> None:
+        """A sleep performed by anything else must not read as a pacing decision.
+
+        ``time.sleep`` is one function object for the whole process. Before the
+        loop had its own seam, a test that patched it recorded every sleep any
+        code performed while ``run()`` was on the stack - CPython reaps a
+        finished subprocess with a 1ms/2ms/4ms/8ms busy-wait, so on a machine
+        where a startup subprocess outlived the first tick those four values
+        were the first four entries and the schedule assertions read them
+        instead of the loop's own. Here a tick sleeps like that on purpose: the
+        record must still hold only what the loop paced.
+        """
+        orch = self._make_orch(tmp_path, poll_interval_s=3)
+        paced: list[float] = []
+        monkeypatch.setattr(orch, "_pace", lambda s: paced.append(float(s)))
+
+        call_count = 0
+
+        def fake_tick() -> TickResult:
+            nonlocal call_count
+            call_count += 1
+            # Stands in for CPython's subprocess reaping busy-wait.
+            for delay in (0.001, 0.002, 0.004, 0.008):
+                time.sleep(delay)
+            if call_count >= 2:
+                orch._running = False
+            return TickResult()
+
+        monkeypatch.setattr(orch, "tick", fake_tick)
+        monkeypatch.setattr(orch, "_has_active_agents", lambda: False)
+        monkeypatch.setattr(orch, "_drain_before_cleanup", lambda: None)
+        monkeypatch.setattr(orch, "_cleanup", lambda: None)
+        orch.run()
+
+        assert paced == [pytest.approx(6.0), pytest.approx(12.0)]
 
     def test_idle_multiplier_field_exists(self, tmp_path: Path) -> None:
         orch = self._make_orch(tmp_path)

@@ -29,6 +29,7 @@ import signal
 import threading
 import time
 from datetime import UTC, datetime
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import httpx
@@ -204,7 +205,7 @@ _compute_total_spent = compute_total_spent
 _total_spent_cache = total_spent_cache
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
     from pathlib import Path
 
     from bernstein.core.backlog_parser import ParsedBacklogTask
@@ -416,7 +417,6 @@ class Orchestrator:
         )
         self._agents: dict[str, AgentSession] = {}
         self._lock_manager = FileLockManager(workdir)
-        self._file_ownership: dict[str, str] = {}  # filepath -> agent_id (legacy alias; use _lock_manager)
         from bernstein.core.loop_detector import LoopDetector
 
         self._loop_detector = LoopDetector()
@@ -3060,6 +3060,19 @@ class Orchestrator:
         except OSError as exc:
             logger.warning("failed to write .finalized marker: %s", exc)
 
+    def _pace(self, seconds: float) -> None:
+        """Sleep between ticks. The run loop's only pacing seam.
+
+        ``time.sleep`` is one function object shared by the whole process,
+        so a test that patches it observes every sleep anything performs
+        while ``run()`` is on the stack - including CPython's own
+        ``subprocess.Popen`` reaping loop, whose 1ms/2ms/4ms/8ms busy-wait
+        lands in the record before the loop's first tick has paced at all.
+        Routing the loop's pacing through one method lets a test watch the
+        schedule this loop chooses and nothing else.
+        """
+        time.sleep(seconds)
+
     def run(self) -> None:
         """Run the orchestrator loop until stopped.
 
@@ -3134,6 +3147,63 @@ class Orchestrator:
                 )
         except Exception:
             logger.exception("Audit integrity check failed (non-fatal) - continuing startup")
+
+        # Run-scope code graph anchoring: build the graph once at run start
+        # and anchor its digest in the audit chain before any agents spawn.
+        # This ensures audit-chain integrity for graph-dependent operations
+        # and provides a verifiable record of the repository state at run time.
+        try:
+            from bernstein.core.knowledge.ast_symbol_graph import (
+                EDGE_ORIGIN_EXTRACTED,
+                EDGE_ORIGIN_INFERRED,
+                build_semantic_graph,
+                graph_digest,
+            )
+            from bernstein.core.orchestration.schedule_projection import SCHEDULE_PROJECTION_REV
+            from bernstein.core.security.audit import load_or_create_audit_key
+            from bernstein.core.security.audit_chain import AuditChainStore, record_code_graph_anchored
+
+            # Build the semantic graph once for this run (run-scoped cache)
+            graph = build_semantic_graph(self._workdir)
+            graph_digest_val = graph_digest(graph)
+            source_count = graph.source_file_count
+            indexed_count = graph.indexed_file_count
+            unparsed_count = len(getattr(graph, "unparsed_files", []))
+            all_edges = graph.edges
+            inferred_count = sum(1 for e in all_edges if e.origin == EDGE_ORIGIN_INFERRED)
+            extracted_count = sum(1 for e in all_edges if e.origin == EDGE_ORIGIN_EXTRACTED)
+
+            # Initialize provider audit chain if not already done
+            if self._provider_audit_chain is None:
+                hmac_key = load_or_create_audit_key(self._workdir / ".sdd")
+                self._provider_audit_chain = AuditChainStore(self._workdir / ".sdd" / "audit", key=hmac_key)
+
+            # Anchor the code graph digest in the audit chain
+            record_code_graph_anchored(
+                chain=self._provider_audit_chain,
+                run_id=self._run_id,
+                graph_digest=graph_digest_val,
+                graph_version=SCHEDULE_PROJECTION_REV,
+                source_file_count=source_count,
+                indexed_file_count=indexed_count,
+                unparsed_file_count=unparsed_count,
+                inferred_edge_count=inferred_count,
+                extracted_edge_count=extracted_count,
+                actor="orchestrator",
+            )
+            logger.info(
+                "Code graph anchored in audit chain: digest=%s, source=%d, indexed=%d, "
+                "unparsed=%d, inferred=%d, extracted=%d",
+                graph_digest_val[:16],
+                source_count,
+                indexed_count,
+                unparsed_count,
+                inferred_count,
+                extracted_count,
+            )
+        except Exception as exc:
+            logger.warning("Code graph anchoring failed (non-fatal): %s", sanitize_log(str(exc)))
+
         # Zombie cleanup: terminate orphaned agent processes from prior crashed runs.
         try:
             from bernstein.core.zombie_cleanup import scan_and_cleanup_zombies
@@ -3177,15 +3247,15 @@ class Orchestrator:
             server_failures = getattr(self, "_consecutive_server_failures", 0)
             if server_failures > 0:
                 # Backoff: 5s, 10s, 15s, 20s, 30s (capped)
-                time.sleep(min(5.0 * server_failures, 30.0))
+                self._pace(min(5.0 * server_failures, 30.0))
             elif tick_result is not None and (
                 tick_result.spawned or tick_result.verified or tick_result.retried or tick_result.open_tasks > 0
             ):
                 self._idle_multiplier = 1
-                time.sleep(self._config.poll_interval_s)
+                self._pace(self._config.poll_interval_s)
             else:
                 self._idle_multiplier = min(self._idle_multiplier * 2, 8)
-                time.sleep(min(self._config.poll_interval_s * self._idle_multiplier, 30.0))
+                self._pace(min(self._config.poll_interval_s * self._idle_multiplier, 30.0))
 
             # Hot-reload bernstein.yaml config (mutable fields only)
             self._maybe_reload_config()
@@ -4561,10 +4631,29 @@ class Orchestrator:
     def _release_file_ownership(self, agent_id: str) -> None:
         """Release all files owned by the given agent."""
         self._lock_manager.release(agent_id)
-        # Always clean the legacy dict so code that reads _file_ownership directly stays consistent
-        to_remove = [fp for fp, owner in self._file_ownership.items() if owner == agent_id]
-        for fp in to_remove:
-            del self._file_ownership[fp]
+
+    @property
+    def _file_ownership(self) -> Mapping[str, str]:
+        """Read-only projection of :attr:`_lock_manager` for legacy callers.
+
+        Returns a ``{file_path: agent_id}`` mapping built from the lock
+        manager's current snapshot.  The orchestrator no longer maintains a
+        parallel store; every claim/release goes through
+        :class:`FileLockManager`, and this property is the single projection
+        of that authoritative state.
+
+        The mapping is wrapped in a :class:`~types.MappingProxyType` so a
+        write fails loudly.  Returning a plain ``dict`` built per access made
+        ``orch._file_ownership[path] = agent`` mutate a temporary that was
+        discarded on the next line - no exception, no claim, and the caller
+        went on believing it owned the file.  That is how this landed:
+        ``test_check_file_overlap_detects_active_agent`` seeded ownership
+        that way, the claim evaporated, and the failure surfaced three
+        frames later as ``assert False is True`` on an untouched assertion.
+        A proxy raises ``TypeError`` at the write instead, naming the line
+        that has to move to :meth:`FileLockManager.acquire`.
+        """
+        return MappingProxyType({lock.file_path: lock.agent_id for lock in self._lock_manager.all_locks()})
 
     def _release_task_to_session(self, task_ids: list[str]) -> None:
         """Remove reverse-index entries for the given task IDs."""
@@ -4909,10 +4998,12 @@ class Orchestrator:
     def _check_file_overlap(self, batch: list[Task]) -> bool:
         """Return True if any file in *batch* is currently owned by an active agent.
 
-        Checks both the in-memory ``_file_ownership`` dict (cross-referenced
-        against live agent status) and the persistent ``_lock_manager`` (for
-        crash-recovery locks held across process restarts).  Dead agents do not
-        block new batches even if they appear in the ownership index.
+        Reads from the persistent :class:`FileLockManager`, which is the
+        single source of truth for file ownership (the legacy
+        ``_file_ownership`` attribute is now a projection of it).  Dead
+        agents do not block new batches even if a stale lock entry still
+        names them; ``FileLockManager`` will expire such entries via its TTL
+        on the next call.
         """
         all_files = [f for task in batch for f in task.owned_files]
         if not all_files:
@@ -4922,21 +5013,9 @@ class Orchestrator:
         lock_timestamps: dict[str, float] = {}
         conflict = False
 
-        # In-memory ownership check - filters out dead agents explicitly.
-        for fpath in all_files:
-            owner_id = self._file_ownership.get(fpath)
-            if owner_id:
-                session = self._agents.get(owner_id)
-                if session and session.status == "working":
-                    logger.debug(
-                        "File %s owned by active agent %s, deferring batch",
-                        fpath,
-                        owner_id,
-                    )
-                    held_by[fpath] = owner_id
-                    conflict = True
-
-        # Persistent lock check (survives crashes via FileLockManager TTL).
+        # Single authoritative ownership check: FileLockManager is the source
+        # of truth. The dead-agent filter previously done against the legacy
+        # dict is implicit here because the lock manager expires stale entries.
         conflicts = self._lock_manager.check_conflicts(all_files)
         if conflicts:
             for fpath, lock in conflicts:
@@ -5847,6 +5926,15 @@ class Orchestrator:
                 provider=session.provider,
                 task_ids=session.task_ids,
                 agent_source=session.agent_source,
+                # Issue #4908: record the resolved endpoint identity
+                # (adapter, model, base_url, endpoint_profile_name) so
+                # operators can answer "which model server produced this
+                # work" from the run record alone. Only the api_key_env
+                # variable *name* is recorded; its value is never exposed.
+                endpoint_adapter_name=session.endpoint_adapter_name,
+                endpoint_model=session.endpoint_model,
+                endpoint_base_url=session.endpoint_base_url,
+                endpoint_profile_name=session.endpoint_profile_name,
             )
             # Issue #3375: pin the declared context files the spawner resolved
             # for this session at their content addresses. Recorded only when
