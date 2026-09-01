@@ -258,7 +258,7 @@ class CachingAdapter(CLIAdapter):
             return False
         return self._inner.is_alive(pid)
 
-    def kill(self, pid: int) -> ProcessReapReceipt | None:  # type: ignore[override]
+    def kill(self, pid: int) -> ProcessReapReceipt | None:
         """Delegate to inner adapter (no receipt for cached PID 0)."""
         if pid == 0:
             return None

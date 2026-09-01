@@ -696,9 +696,9 @@ def run_command_in_workdir(
         }
     )
 
-    if is_shell_form:
+    if isinstance(argv, str):
         command_str = argv
-        if not command_str.strip():  # type: ignore[union-attr]
+        if not command_str.strip():
             logger.info(
                 "run_command: exec_form=shell_string cwd=%s exit_code=n/a status=error error=%r",
                 workdir,
@@ -714,7 +714,7 @@ def run_command_in_workdir(
                 }
             )
             return "error: empty command string"
-        exec_argv: list[str] = [*_SHELL_ARGV, command_str]  # type: ignore[list-item]
+        exec_argv: list[str] = [*_SHELL_ARGV, command_str]
         logged_form = f"shell_string command={command_str!r}"
     else:
         argv_list = list(argv)
