@@ -94,7 +94,7 @@ class ManagerAdapter(CLIAdapter):
     def is_alive(self, pid: int) -> bool:
         return process_alive(pid)
 
-    def kill(self, pid: int) -> None:
+    def kill(self, pid: int) -> None:  # type: ignore[override]
         kill_process_group(pid, sig=15)
 
     def name(self) -> str:

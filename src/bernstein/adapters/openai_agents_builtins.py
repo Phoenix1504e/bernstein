@@ -698,7 +698,7 @@ def run_command_in_workdir(
 
     if is_shell_form:
         command_str = argv
-        if not command_str.strip():
+        if not command_str.strip():  # type: ignore[union-attr]
             logger.info(
                 "run_command: exec_form=shell_string cwd=%s exit_code=n/a status=error error=%r",
                 workdir,
@@ -714,7 +714,7 @@ def run_command_in_workdir(
                 }
             )
             return "error: empty command string"
-        exec_argv: list[str] = [*_SHELL_ARGV, command_str]
+        exec_argv: list[str] = [*_SHELL_ARGV, command_str]  # type: ignore[list-item]
         logged_form = f"shell_string command={command_str!r}"
     else:
         argv_list = list(argv)
@@ -938,7 +938,7 @@ def build_builtin_tools(
     Raises:
         ImportError: The ``openai-agents`` SDK is not installed.
     """
-    from agents import function_tool  # type: ignore[import-not-found]
+    from agents import function_tool  # type: ignore[import-not-found, attr-defined]
 
     @function_tool
     def read_file(path: str) -> str:
