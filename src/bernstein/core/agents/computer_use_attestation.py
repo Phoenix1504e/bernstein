@@ -460,7 +460,7 @@ def replay_run(
     head = GENESIS_ANCHOR
     for idx in sorted(signed):
         expected_anchor, parents = signed[idx]
-        details = manifest.get(idx)
+        details = manifest.get(idx)  # type: ignore[assignment]
         if details is None:
             return ReplayResult(
                 ok=False,

@@ -3093,8 +3093,8 @@ class AgentSpawner:
         session.pid = None
         session.log_path = str(preferred_log_path)
         session.provider = session.provider or self._runtime_bridge.name()
-        session.bridge_session_key = bridge_status.metadata.get("session_key") or None
-        session.bridge_run_id = bridge_status.metadata.get("run_id") or None
+        session.bridge_session_key = bridge_status.metadata.get("session_key") or None  # type: ignore[attr-defined]
+        session.bridge_run_id = bridge_status.metadata.get("run_id") or None  # type: ignore[attr-defined]
         transition_agent(session, "working", actor="spawner", reason="remote bridge run accepted")
         return True
 
@@ -3976,7 +3976,7 @@ class AgentSpawner:
 
         # Opt-in task-tier model map (#4854). Zero extraction when unset.
         effective_role_model, tier_decision_record = self._resolve_tier_model(tasks[0], role_policy)
-        self._pending_tier_decision = tier_decision_record
+        self._pending_tier_decision = tier_decision_record  # type: ignore[assignment]
 
         if not task_model_blocks_role_policy and effective_role_model:
             if tasks[0].model and tasks[0].model != effective_role_model:

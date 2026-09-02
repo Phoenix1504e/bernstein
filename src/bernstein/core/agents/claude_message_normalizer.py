@@ -182,7 +182,7 @@ def _normalize_legacy_json(data: dict[str, Any]) -> NormalizedMessage | None:
     if isinstance(content_raw, list):
         text_parts, tool_use = _parse_legacy_content_blocks(cast("list[object]", content_raw))
         return NormalizedMessage(
-            role=role if role in _VALID_ROLES else "assistant",
+            role=role if role in _VALID_ROLES else "assistant",  # type: ignore[arg-type]
             content="\n".join(text_parts),
             tool_use=tool_use,
             raw_type="legacy",

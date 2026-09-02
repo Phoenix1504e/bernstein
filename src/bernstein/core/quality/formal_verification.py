@@ -180,7 +180,7 @@ def _verify_z3(
         None if the property holds, PropertyViolation otherwise.
     """
     try:
-        import z3  # type: ignore[import-untyped]
+        import z3  # type: ignore[import-not-found]
     except ImportError:
         logger.debug("z3-solver not installed; falling back to Python eval for %r", prop.name)
         return _verify_python_eval(prop, context)

@@ -1087,7 +1087,7 @@ def ensure_agent_image(
 
     logger.info("Building agent image: %s", image_name)
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # type: ignore[assignment]
             build_args,
             capture_output=True,
             text=True,

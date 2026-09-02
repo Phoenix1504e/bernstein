@@ -581,7 +581,7 @@ async def run_pipeline(
         len(stage_verdicts),
         time.monotonic() - pipeline_started,
     )
-    return final
+    return final  # type: ignore[return-value]
 
 
 def run_pipeline_sync(
@@ -593,7 +593,7 @@ def run_pipeline_sync(
 
     Safe to call from sync orchestrator code (no running loop).
     """
-    return asyncio.run(run_pipeline(pipeline, diff_src, **kwargs))
+    return asyncio.run(run_pipeline(pipeline, diff_src, **kwargs))  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------

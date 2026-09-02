@@ -652,7 +652,7 @@ class GateRunner:
         augments with AST-based cross-codebase caller analysis via
         :mod:`bernstein.core.dead_code_detector`.
         """
-        from bernstein.core import dead_code_detector
+        from bernstein.core import dead_code_detector  # type: ignore[attr-defined]  # meta-path redirect
         from bernstein.core import quality_gates as qg
 
         python_files = self._python_files(changed_files)
@@ -685,7 +685,7 @@ class GateRunner:
             logger.warning("dead_code_detector.analyse failed: %s", exc)
             report = dead_code_detector.DeadCodeReport()
 
-        return self._build_dead_code_result(step, command, ok, vulture_detail, report)
+        return self._build_dead_code_result(step, command, ok, vulture_detail, report)  # type: ignore[attr-defined]  # meta-path redirect
 
     def _run_comment_quality_gate_sync(
         self,
@@ -698,7 +698,7 @@ class GateRunner:
         Checks docstring accuracy, completeness, redundancy, and style via
         :mod:`bernstein.core.comment_quality`.
         """
-        from bernstein.core import comment_quality
+        from bernstein.core import comment_quality  # type: ignore[attr-defined]  # meta-path redirect
 
         python_files = self._python_files(changed_files)
         if not python_files:
