@@ -287,7 +287,7 @@ class AwsSecretsManagerBackend(SecretsBackend):
 
     def read(self, secret_name: str) -> str:
         try:
-            import boto3  # type: ignore[import-not-found]
+            import boto3  # type: ignore[import-untyped]
         except ImportError as exc:
             raise SecretsBrokerError("boto3 is required for aws_secretsmanager backend") from exc
         try:
