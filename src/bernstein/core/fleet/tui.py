@@ -68,7 +68,7 @@ def build_rows(
         snap = snapshots.get(project.name) or ProjectSnapshot(name=project.name)
         cost_block = rollup.per_project.get(project.name, {})
         chain = check_audit_tail(project.name, project.sdd_dir)
-        cost_total = float(cost_block.get("total_usd") or snap.cost_usd or 0.0)
+        cost_total = float(cost_block.get("total_usd") or snap.cost_usd or 0.0)  # type: ignore[arg-type]
         spark = str(cost_block.get("sparkline") or "")
         rows.append(
             FleetRow(
@@ -136,7 +136,7 @@ def build_textual_app(
         DataTable { height: 1fr; }
         #footer { color: $accent; padding: 0 1; }
         """
-        BINDINGS: ClassVar[list[Binding]] = [
+        BINDINGS: ClassVar[list[Binding]] = [  # type: ignore[assignment]
             Binding("q", "quit", "Quit"),
             Binding("r", "refresh", "Refresh"),
             Binding("s", "bulk_stop", "Bulk stop"),

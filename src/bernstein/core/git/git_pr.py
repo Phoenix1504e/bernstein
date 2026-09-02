@@ -324,7 +324,7 @@ def merge_with_conflict_detection(
 
                     sdd_dir = _Path(worktree_root).parent.parent
                     audit_log = AuditLog(sdd_dir / "runtime")
-                    chain = AuditChainStore(audit_log)
+                    chain = AuditChainStore(audit_log)  # type: ignore[arg-type]
                     receipt = refuse_read_set(
                         chain=chain,
                         sdd_dir=sdd_dir,

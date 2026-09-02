@@ -315,7 +315,7 @@ class ComparativeBenchmark:
         tokens_used = 0
         try:
             model_config = ModelConfig(model="default", provider="default")
-            adapter.spawn(
+            adapter.spawn(  # type: ignore[call-arg]
                 prompt=prompt,
                 workdir=self._workdir,
                 model_config=model_config,

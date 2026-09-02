@@ -404,7 +404,7 @@ def incremental_merge_files(
 
                         sdd_dir = runtime_dir.parent
                         audit_log = AuditLog(sdd_dir / "runtime")
-                        chain = AuditChainStore(audit_log)
+                        chain = AuditChainStore(audit_log)  # type: ignore[arg-type]
                         # Sign and persist the refusal receipt
                         receipt = refuse_read_set(
                             chain=chain,

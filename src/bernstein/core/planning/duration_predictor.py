@@ -438,7 +438,7 @@ class DurationPredictor:
             records: Training records to fit on.
         """
         try:
-            from sklearn.ensemble import GradientBoostingRegressor  # type: ignore[import-untyped]
+            from sklearn.ensemble import GradientBoostingRegressor  # type: ignore[import-not-found]
         except ImportError:
             logger.warning("scikit-learn not installed - duration predictor disabled")
             return

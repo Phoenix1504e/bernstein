@@ -348,7 +348,7 @@ def verify_receipt_offline(receipt_bytes: bytes, chain_path: str) -> bool:
         from bernstein.core.security.audit_chain import AuditChainStore
 
         audit_log = AuditLog(Path(chain_path).parent)
-        chain = AuditChainStore(audit_log)
+        chain = AuditChainStore(audit_log)  # type: ignore[arg-type]
         chain_ok, _ = chain.verify()
         if not chain_ok:
             return False

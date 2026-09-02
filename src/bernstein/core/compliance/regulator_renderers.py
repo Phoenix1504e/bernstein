@@ -20,12 +20,12 @@ import csv
 import io
 from typing import TYPE_CHECKING, Any
 
-import reportlab.rl_config
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.units import cm
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+import reportlab.rl_config  # type: ignore[import-untyped]
+from reportlab.lib import colors  # type: ignore[import-untyped]
+from reportlab.lib.pagesizes import A4  # type: ignore[import-untyped]
+from reportlab.lib.styles import getSampleStyleSheet  # type: ignore[import-untyped]
+from reportlab.lib.units import cm  # type: ignore[import-untyped]
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle  # type: ignore[import-untyped]
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence

@@ -430,7 +430,7 @@ class SLAStore:
         out.sort(key=lambda c: c.id)
         return out
 
-    def for_subject(self, subject_type: str, subject_id: str) -> list[SLAContract]:
+    def for_subject(self, subject_type: str, subject_id: str) -> list[SLAContract]:  # type: ignore[valid-type]
         """Return every contract bound to ``(subject_type, subject_id)``."""
         return [c for c in self.list() if c.subject_type == subject_type and c.subject_id == subject_id]
 

@@ -1006,7 +1006,7 @@ class PluginManager:
         """Parse and register MCP servers from a single plugin."""
         from bernstein.core.mcp_registry import MCPServerEntry
 
-        raw_servers: object = plugin.provide_mcp_servers()  # type: ignore[union-attr]
+        raw_servers: object = plugin.provide_mcp_servers()  # type: ignore[union-attr, attr-defined]
         if not raw_servers or not isinstance(raw_servers, list):
             return
         typed_servers = cast("_CAST_LIST_OBJ", raw_servers)
@@ -1017,7 +1017,7 @@ class PluginManager:
             elif isinstance(raw, dict):
                 entries.append(_mcp_entry_from_dict(cast("dict[str, Any]", raw)))
         if entries:
-            registry.register_plugin_servers(plugin_name, entries)  # type: ignore[union-attr]
+            registry.register_plugin_servers(plugin_name, entries)  # type: ignore[union-attr, attr-defined]
 
     def collect_plugin_tracker_adapters(self) -> int:
         """Collect tracker adapters from registered plugins.

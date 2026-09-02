@@ -233,7 +233,7 @@ class _AwsInjector:
     def inject(self, config: InjectionConfig) -> tuple[dict[str, str], CredentialLease]:
         """Fetch AWS STS credentials and return (env_vars, lease)."""
         try:
-            import boto3  # type: ignore[import-untyped]
+            import boto3  # type: ignore[import-not-found]
         except ImportError as exc:
             raise VaultInjectionError("boto3 required for AWS injection: pip install boto3") from exc
 

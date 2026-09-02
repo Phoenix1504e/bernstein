@@ -158,7 +158,7 @@ class AwsSecretsProvider(SecretsProvider):
             Parsed JSON key-value pairs from the secret string.
         """
         try:
-            import boto3  # type: ignore[import-untyped]
+            import boto3  # type: ignore[import-not-found]
         except ImportError as exc:
             raise SecretsError("boto3 is required for AWS Secrets Manager: pip install boto3") from exc
 
