@@ -57,6 +57,41 @@ TRUST_CLASSES: frozenset[str] = frozenset({"operator", "workspace", "first_party
 #: Shape of a bare hex SHA-256, used to validate recorded attachment digests.
 _HEX64: re.Pattern[str] = re.compile(r"\A[0-9a-f]{64}\Z")
 
+#: Closed set of valid ``activity_source`` values (issue #4962). ``None`` means
+#: pre-existing entry not yet migrated and is dropped from canonical bytes so
+#: every historical signature and HMAC stays valid.
+ACTIVITY_SOURCES: frozenset[str] = frozenset({"scheduler", "adapter"})
+
+#: Closed set of valid ``provider`` values for :class:`ModelRef` (issue #5037).
+MODEL_REF_PROVIDERS: frozenset[str] = frozenset({"openai", "anthropic", "google", "azure", "ollama", "local"})
+
+
+@dataclass(frozen=True, slots=True)
+class ModelRef:
+    """Model reference capturing the request/response gap (issue #5037).
+
+    ``None`` fields are dropped from the canonical bytes so every historical
+    entry keeps its exact wire form, signature and HMAC.
+    """
+
+    provider: str
+    model_requested: str
+    model_reported: str | None = None
+    version: str | None = None
+    routing_decision_hash: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.provider:
+            raise ValueError("provider must be a non-empty string")
+        if not self.model_requested:
+            raise ValueError("model_requested must be a non-empty string")
+        if self.model_reported is not None and not self.model_reported:
+            raise ValueError("model_reported must be a non-empty string when not None")
+        if self.version is not None and not self.version:
+            raise ValueError("version must be a non-empty string when not None")
+        if self.routing_decision_hash and not self.routing_decision_hash.startswith("sha256:"):
+            raise ValueError(f"routing_decision_hash must start with 'sha256:', got {self.routing_decision_hash!r}")
+
 
 @dataclass(frozen=True, slots=True)
 class LineageEntry:
@@ -81,6 +116,10 @@ class LineageEntry:
     # bytes so every historical entry keeps its exact wire form, signature and
     # HMAC. A tool-result provenance record sets this to one of TRUST_CLASSES.
     trust_class: str | None = None
+    # Additive, optional (issue #4962). ``None`` is dropped from the canonical
+    # bytes so every historical entry keeps its exact wire form, signature and
+    # HMAC. When not None must be one of LINEAGE_ENTRY.ACTIVITY_SOURCES.
+    activity_source: str | None = None
     # Additive, optional (issue #1797), dropped when ``None`` on the same rule
     # as ``trust_class``. Hex SHA-256 digests of the operator attachments the
     # producing turn was handed, so the receipt names every input the model
@@ -93,6 +132,10 @@ class LineageEntry:
     # both mis-type the relation and make every attached linear write look
     # like a merge in the tip projection.
     attachment_digests: list[str] | None = None
+    # Additive, optional (issue #5037). ``None`` is dropped from the canonical
+    # bytes so every historical entry keeps its exact wire form, signature and
+    # HMAC. When not None must be a valid ModelRef instance.
+    model_ref: ModelRef | None = None
 
     def __post_init__(self) -> None:
         if self.v != LINEAGE_ENTRY_VERSION:
@@ -106,12 +149,16 @@ class LineageEntry:
                 raise ValueError(f"parent_hash must start with 'sha256:', got {p!r}")
         if self.trust_class is not None and self.trust_class not in TRUST_CLASSES:
             raise ValueError(f"unknown trust_class: {self.trust_class!r}")
+        if self.activity_source is not None and self.activity_source not in ACTIVITY_SOURCES:
+            raise ValueError(f"unknown activity_source: {self.activity_source!r}")
         if self.attachment_digests is not None:
             if not self.attachment_digests:
                 raise ValueError("attachment_digests must be omitted rather than empty")
             for d in self.attachment_digests:
                 if len(d) != 64 or not _HEX64.match(d):
                     raise ValueError(f"attachment digest must be 64 lower-case hex chars, got {d!r}")
+        if self.model_ref is not None and not isinstance(self.model_ref, ModelRef):
+            raise ValueError(f"model_ref must be a ModelRef instance, got {type(self.model_ref).__name__}")
 
 
 def _canonical_body(entry: LineageEntry) -> dict[str, object]:
@@ -128,8 +175,12 @@ def _canonical_body(entry: LineageEntry) -> dict[str, object]:
     body = asdict(entry)
     if body.get("trust_class") is None:
         body.pop("trust_class", None)
+    if body.get("activity_source") is None:
+        body.pop("activity_source", None)
     if body.get("attachment_digests") is None:
         body.pop("attachment_digests", None)
+    if body.get("model_ref") is None:
+        body.pop("model_ref", None)
     return body
 
 

@@ -39,6 +39,7 @@ Full per-file module map. `AGENTS.md`'s own "Module map" section links here inst
 | `evidence/`                 | Verification evidence bundles (issue #2362) |
 | `fleet/`                    | Fleet dashboard - supervise multiple Bernstein projects in one view |
 | `git/`                      | git sub-package |
+| `govern/`                   | Govern plan models for posture diff artifacts |
 | `grpc_gen/`                 | Generated gRPC stubs - run ``scripts/generate_proto.sh`` to populate |
 | `handoff/`                  | Session handoff between terminal and chat/dashboard surfaces (op-005) |
 | `identity/`                 | Install-rev identity module - passive, operator-decodable install fingerprint |
@@ -81,6 +82,7 @@ Full per-file module map. `AGENTS.md`'s own "Module map" section links here inst
 | `trackers/`                 | Tracker adapter subsystem |
 | `trigger_sources/`          | Trigger source adapters - normalize raw events into TriggerEvent |
 | `tunnels/`                  | Tunnel provider abstraction and registry |
+| `verifier/`                 | Sub-package: audit_receipt_verifier |
 | `volunteer/`                | Volunteer-workers substrate: opt-in project policy and its trust anchor |
 | `workflows/`                | Declarative YAML workflow manifests |
 | `worktrees/`                | Worktree inventory and garbage-collection helpers |
@@ -154,6 +156,7 @@ Full per-file module map. `AGENTS.md`'s own "Module map" section links here inst
 | `mistral.py`                | Mistral Vibe CLI adapter |
 | `mock.py`                   | Mock CLI adapter for zero-API-key demos and testing |
 | `muse.py`                   | Muse Code CLI adapter for Bernstein |
+| `nmap.py`                   | Transcript-anchored Nmap scanner adapter and XML normalization |
 | `ollama.py`                 | Ollama / OpenAI-compatible local LLM adapter - run coding agents without cloud API keys |
 | `onboarding.py`             | Probe CLI evidence, record a supervised golden transcript, and replay held-out invocations |
 | `open_interpreter.py`       | Open Interpreter CLI adapter |
