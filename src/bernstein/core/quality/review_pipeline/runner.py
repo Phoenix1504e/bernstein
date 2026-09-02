@@ -58,7 +58,6 @@ if TYPE_CHECKING:
         ReviewPipeline,
         StageSpec,
     )
-    from bernstein.core.quality.review_pipeline.scope import ScopeResolution
     from bernstein.core.security.audit import AuditLog
 
 logger = logging.getLogger(__name__)
@@ -464,11 +463,11 @@ async def run_pipeline(
     actor: str = "review_pipeline",
     ruleset: ReviewRuleset | None = None,
     sdd_dir: Path | None = None,
-) -> tuple[PipelineVerdict, ScopeResolution]:
-    """Execute *pipeline* against *diff_src* and return the final verdict and scope.
+) -> PipelineVerdict:
+    """Execute *pipeline* against *diff_src* and return the final verdict.
 
-    Scope is resolved once before any reviewer runs.  Changed paths are derived
-    from the diff; active conventions are loaded from ``sdd_dir`` (when provided).
+    Active conventions are loaded from ``sdd_dir`` when provided; every stage
+    runs in order and its verdict is folded into the aggregate.
 
     Args:
         pipeline: Validated pipeline spec.
@@ -489,7 +488,7 @@ async def run_pipeline(
         sdd_dir: Path to the project .sdd directory for loading active conventions.
 
     Returns:
-        ``(PipelineVerdict, ScopeResolution)``.
+        The aggregated :class:`PipelineVerdict` for the whole pipeline.
     """
     caller = llm_caller or _default_llm_caller
     rules = ruleset if ruleset is not None else EMPTY_RULESET
@@ -581,7 +580,7 @@ async def run_pipeline(
         len(stage_verdicts),
         time.monotonic() - pipeline_started,
     )
-    return final  # type: ignore[return-value]
+    return final
 
 
 def run_pipeline_sync(
@@ -593,7 +592,7 @@ def run_pipeline_sync(
 
     Safe to call from sync orchestrator code (no running loop).
     """
-    return asyncio.run(run_pipeline(pipeline, diff_src, **kwargs))  # type: ignore[return-value]
+    return asyncio.run(run_pipeline(pipeline, diff_src, **kwargs))
 
 
 # ---------------------------------------------------------------------------

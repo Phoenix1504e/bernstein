@@ -3105,6 +3105,9 @@ class AgentSpawner:
         session.pid = None
         session.log_path = str(preferred_log_path)
         session.provider = session.provider or self._runtime_bridge.name()
+        # `_run_bridge_call` is typed `Any`; the isinstance guard above narrows it
+        # to `object`, which carries no `metadata`. See #2980 for the bridge
+        # protocol type that would let this drop the suppression.
         session.bridge_session_key = bridge_status.metadata.get("session_key") or None  # type: ignore[attr-defined]
         session.bridge_run_id = bridge_status.metadata.get("run_id") or None  # type: ignore[attr-defined]
         transition_agent(session, "working", actor="spawner", reason="remote bridge run accepted")
@@ -3490,7 +3493,7 @@ class AgentSpawner:
 
         profile = PROFILES.get(adapter_name)
         tier_decision = getattr(self, "_pending_tier_decision", None)
-        self._pending_tier_decision = None
+        self._pending_tier_decision: dict[str, Any] | None = None
         if profile is None:
             # Untracked adapter: still record an opt-in tier decision if present.
             if tier_decision is not None:
@@ -3988,7 +3991,7 @@ class AgentSpawner:
 
         # Opt-in task-tier model map (#4854). Zero extraction when unset.
         effective_role_model, tier_decision_record = self._resolve_tier_model(tasks[0], role_policy)
-        self._pending_tier_decision = tier_decision_record  # type: ignore[assignment]
+        self._pending_tier_decision = tier_decision_record
 
         if not task_model_blocks_role_policy and effective_role_model:
             if tasks[0].model and tasks[0].model != effective_role_model:

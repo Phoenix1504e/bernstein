@@ -685,7 +685,7 @@ class GateRunner:
             logger.warning("dead_code_detector.analyse failed: %s", exc)
             report = dead_code_detector.DeadCodeReport()
 
-        return self._build_dead_code_result(step, command, ok, vulture_detail, report)  # type: ignore[attr-defined]  # meta-path redirect
+        return self._build_dead_code_result(step, command, ok, vulture_detail, report)
 
     def _run_comment_quality_gate_sync(
         self,
