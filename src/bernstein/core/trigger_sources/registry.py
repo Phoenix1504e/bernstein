@@ -21,7 +21,7 @@ ENTRY_POINT_GROUP = "bernstein.triggers"
 
 _BUILTIN_SOURCES: dict[str, type[TriggerSource]] = {
     "artifact": ArtifactSource,
-    "file_watch": FileWatchSource,  # type: ignore[dict-item]
+    "file_watch": FileWatchSource,
     "odata_poll": OdataPollSource,
 }
 
