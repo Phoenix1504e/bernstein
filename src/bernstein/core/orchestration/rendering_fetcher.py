@@ -64,7 +64,7 @@ def make_rendering_fetcher() -> Callable[[str], bytes]:
     event loop, and must therefore not be invoked from inside a running loop.
     """
     try:
-        from playwright.async_api import async_playwright
+        from playwright.async_api import async_playwright  # type: ignore[import-not-found]
     except ImportError as exc:  # pragma: no cover - exercised via sys.modules patch
         raise RenderingBackendUnavailableError(
             "rendering fetch requires the optional extra "

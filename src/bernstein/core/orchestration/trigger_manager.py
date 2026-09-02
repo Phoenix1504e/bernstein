@@ -826,7 +826,7 @@ class TriggerManager:
         (3s) - uses cron_state to prevent double-firing within the same minute.
         """
         try:
-            from croniter import croniter
+            from croniter import croniter  # type: ignore[import-untyped]
         except ImportError:
             return []
 
