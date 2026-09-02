@@ -26,7 +26,7 @@ from bernstein.adapters.plugin_sdk import (
 from bernstein.adapters.registry import adapter_name_for_provider, get_adapter
 from bernstein.adapters.skills_injector import inject_skills
 from bernstein.agents.registry import AgentRegistry, get_registry
-from bernstein.bridges.base import AgentState, BridgeError, RuntimeBridge, SpawnRequest
+from bernstein.bridges.base import AgentState, AgentStatus, BridgeError, RuntimeBridge, SpawnRequest
 from bernstein.core.agents import project_context as _project_context
 from bernstein.core.agents.adapter_health import AdapterHealthMonitor
 from bernstein.core.agents.attachment_dispatch import (
@@ -3082,7 +3082,7 @@ class AgentSpawner:
         """
         if self._runtime_bridge is None:
             return False
-        bridge_status = self._run_bridge_call(
+        bridge_status: AgentStatus = self._run_bridge_call(
             self._runtime_bridge.spawn(
                 SpawnRequest(
                     agent_id=session.id,
@@ -3105,11 +3105,8 @@ class AgentSpawner:
         session.pid = None
         session.log_path = str(preferred_log_path)
         session.provider = session.provider or self._runtime_bridge.name()
-        # `_run_bridge_call` is typed `Any`; the isinstance guard above narrows it
-        # to `object`, which carries no `metadata`. See #2980 for the bridge
-        # protocol type that would let this drop the suppression.
-        session.bridge_session_key = bridge_status.metadata.get("session_key") or None  # type: ignore[attr-defined]
-        session.bridge_run_id = bridge_status.metadata.get("run_id") or None  # type: ignore[attr-defined]
+        session.bridge_session_key = bridge_status.metadata.get("session_key") or None
+        session.bridge_run_id = bridge_status.metadata.get("run_id") or None
         transition_agent(session, "working", actor="spawner", reason="remote bridge run accepted")
         return True
 
