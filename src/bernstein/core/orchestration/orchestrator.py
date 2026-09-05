@@ -3483,29 +3483,23 @@ class Orchestrator:
             logger.warning("Run closure marker not written for run %s: %s", self._run_id, sanitize_log(str(exc)))
 
     def _seal_intent_capsules(self, hmac_key: bytes) -> None:
-        """Commit the finished journal's end for every capsule bound to this run (#2649).
-
-        Offline verification cannot otherwise tell a truncated journal from a
-        short one: the journal chain recomputes from genesis, so any prefix
-        verifies on its own. Sealing here -- once the run is over and the
-        journal is final -- is what makes a later ``bernstein intent verify``
-        able to attest completeness rather than only "no drift in what remains".
-
-        Idempotent, and failures are logged rather than raised: sealing is an
-        attestation aid and must not fail a run that already completed.
-        """
+        """Commit the finished journal's end for every capsule bound to this run (#2649)."""
         try:
+            from bernstein.core.persistence.file_locks import LockTimeout
             from bernstein.core.security.audit_chain import AuditChainStore
             from bernstein.core.security.intent_capsule import seal_capsules_bound_to_run
 
             sdd_dir = self._workdir / ".sdd"
-            sealed = seal_capsules_bound_to_run(
+            seal_capsules_bound_to_run(
                 chain=AuditChainStore(sdd_dir / "audit", key=hmac_key),
                 sdd_dir=sdd_dir,
                 run_id=self._run_id,
             )
-            if sealed:
-                logger.info("Sealed %d intent capsule(s) for run %s", len(sealed), self._run_id)
+        except LockTimeout:
+            logger.critical(
+                "Failed to acquire lock to seal intent capsules after timeout. "
+                "The receipt will not be written. Check for stale lock files."
+            )
         except Exception as exc:
             logger.warning("Failed to seal intent capsules: %s", sanitize_log(str(exc)))
 
@@ -7394,6 +7388,3 @@ from bernstein.core.orchestration.nudge_manager import nudge_orchestrator as nud
 _TESTS_DIR = "tests/"
 
 _nudge_manager = nudge_manager  # backward-compat alias
-#   t r i g g e r   C I  
- #   t r i g g e r   C I  
- 
