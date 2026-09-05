@@ -7022,3 +7022,42 @@ def test_diagnose_shutdown_wait(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
             print(f"--- SLEEP {dur:.4f}s ---")
             print("".join(traceback.format_list(stack)))
             break
+
+def test_diagnose_post_loop_wait(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Temporary diagnostic to capture the 0.05s post-loop sleep stack trace."""
+    import traceback
+    import bernstein.core.orchestration.orchestrator as _orch_mod
+
+    sleep_calls: list[tuple[float, traceback.StackSummary]] = []
+
+    def recording_sleep(duration: float) -> None:
+        sleep_calls.append((float(duration), traceback.extract_stack()))
+
+    monkeypatch.setattr(_orch_mod.time, "sleep", recording_sleep)
+
+    transport = _mock_transport({"GET /tasks": httpx.Response(200, json=[])})
+    orch = _build_orchestrator(tmp_path, transport)
+
+    call_count = 0
+    def fake_tick() -> TickResult:
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 2:
+            orch._running = False
+        return TickResult()
+
+    monkeypatch.setattr(orch, "tick", fake_tick)
+    monkeypatch.setattr(orch, "_has_active_agents", lambda: False)
+    monkeypatch.setattr(orch, "_drain_before_cleanup", lambda: None)
+    monkeypatch.setattr(orch, "_cleanup", lambda: None)
+
+    orch.run()
+
+    trace_str = "No small sleeps detected."
+    for dur, stack in sleep_calls:
+        if dur <= 1.0:
+            trace_str = f"--- SLEEP {dur:.4f}s ---\n" + "".join(traceback.format_list(stack))
+            break
+    
+    # Force the test to fail so pytest prints the captured trace!
+    assert False, f"\n\n!!! DIAGNOSTIC SLEEP TRACE !!!\n{trace_str}\n"
