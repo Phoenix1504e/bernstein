@@ -6982,3 +6982,43 @@ class TestCostPolicyDispatchWiring:
 
         assert result.cost_dispatch_halt is None
         assert len(result.spawned) == 1
+
+
+def test_diagnose_shutdown_wait(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Temporary diagnostic to capture the 0.05s post-loop sleep stack trace."""
+    import traceback
+    import bernstein.core.orchestration.orchestrator as _orch_mod
+
+    sleep_calls: list[tuple[float, traceback.StackSummary]] = []
+
+    def recording_sleep(duration: float) -> None:
+        sleep_calls.append((float(duration), traceback.extract_stack()))
+
+    monkeypatch.setattr(_orch_mod.time, "sleep", recording_sleep)
+
+    # Build a standard orchestrator
+    transport = _mock_transport({"GET /tasks": httpx.Response(200, json=[])})
+    orch = _build_orchestrator(tmp_path, transport)
+
+    call_count = 0
+    def fake_tick() -> TickResult:
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 2:
+            orch._running = False
+        return TickResult()
+
+    monkeypatch.setattr(orch, "tick", fake_tick)
+    monkeypatch.setattr(orch, "_has_active_agents", lambda: False)
+    monkeypatch.setattr(orch, "_drain_before_cleanup", lambda: None)
+    monkeypatch.setattr(orch, "_cleanup", lambda: None)
+
+    orch.run()
+
+    # Print the first small sleep stack trace so it shows up in CI logs
+    for dur, stack in sleep_calls:
+        if dur <= 1.0:
+            print("\n\n!!! DIAGNOSTIC SLEEP TRACE !!!")
+            print(f"--- SLEEP {dur:.4f}s ---")
+            print("".join(traceback.format_list(stack)))
+            break
