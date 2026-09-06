@@ -17,6 +17,7 @@ error at load time.
 from __future__ import annotations
 
 import contextlib
+import errno
 import gzip
 import hashlib
 import hmac as _hmac
@@ -65,6 +66,10 @@ logger = logging.getLogger(__name__)
 _GENESIS_HMAC = "0" * 64
 
 DEFAULT_RETENTION_DAYS = 90
+
+#: Maximum time to wait for the cross-process audit chain lock before failing.
+#: Prevents indefinite hangs on the orchestrator shutdown path (issue #4729).
+AUDIT_LOCK_TIMEOUT_S: float = 5.0
 
 #: Environment variable that overrides the audit key path.
 AUDIT_KEY_ENV = "BERNSTEIN_AUDIT_KEY_PATH"
@@ -509,14 +514,16 @@ def _chain_append_lock(audit_dir: Path) -> Iterator[None]:
             lock_path = audit_dir / ".chain.lock"
             fd = os.open(str(lock_path), os.O_WRONLY | os.O_CREAT, 0o600)
             try:
-                # Bound the wait to 5 seconds to prevent indefinite hangs.
-                _deadline = time.monotonic() + 5.0
+                # Bound the wait to AUDIT_LOCK_TIMEOUT_S to prevent indefinite hangs.
+                _lock_deadline = time.monotonic() + AUDIT_LOCK_TIMEOUT_S
                 while True:
                     try:
                         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                         break
-                    except OSError:
-                        if time.monotonic() >= _deadline:
+                    except OSError as exc:
+                        if exc.errno not in (errno.EAGAIN, errno.EWOULDBLOCK):
+                            raise  # Don't mask real I/O errors as a timeout
+                        if time.monotonic() >= _lock_deadline:
                             msg = f"Timed out waiting for audit chain lock at {lock_path}"
                             raise LockTimeout(msg) from None
                         time.sleep(0.05)
