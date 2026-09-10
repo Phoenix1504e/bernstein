@@ -8,7 +8,7 @@ import shutil
 import subprocess
 from contextlib import suppress
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 from bernstein.adapters._contract import (
@@ -287,11 +287,21 @@ def parse_gitleaks_sarif(report: str | bytes, *, target_root: Path | None = None
 
 
 def _normalize_path(path: str, target_root: Path | None) -> str:
-    candidate = Path(path)
-    if target_root is not None and candidate.is_absolute():
+    """Relativize *path* against *target_root* using POSIX semantics.
+
+    SARIF URIs are always POSIX-style (forward slashes). Using OS-native
+    ``Path`` (which is ``WindowsPath`` on Windows) causes ``is_absolute()``
+    to fail for rootless paths and ``relative_to()`` to raise on drive
+    mismatches. ``PurePosixPath`` gives deterministic cross-platform behavior.
+    """
+    candidate = PurePosixPath(path)
+    if target_root is not None:
+        # Convert the OS-native target_root to a PurePosixPath string
+        # so the relativization logic matches the SARIF URI.
+        root_posix = PurePosixPath(str(target_root).replace("\\", "/"))
         with suppress(ValueError):
-            candidate = candidate.relative_to(target_root.resolve())
-    return candidate.as_posix()
+            candidate = candidate.relative_to(root_posix)
+    return str(candidate)
 
 
 def _rule_descriptions(driver: dict[str, Any]) -> dict[str, str]:

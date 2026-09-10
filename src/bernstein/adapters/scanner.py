@@ -102,7 +102,7 @@ class ScanScope:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "roots": [str(p) for p in self.roots],
+            "roots": [p.as_posix() for p in self.roots],
             "include": list(self.include),
             "exclude": list(self.exclude),
             "max_depth": self.max_depth,

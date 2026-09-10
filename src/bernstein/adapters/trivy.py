@@ -12,7 +12,7 @@ import sys
 import tempfile
 from contextlib import suppress
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, cast
 from urllib.parse import unquote, urlparse
 
@@ -313,14 +313,26 @@ def _result_path(result: dict[str, Any], result_index: int, target_root: Path | 
 
 
 def _normalize_path(uri: str, target_root: Path | None) -> str:
+    """Relativize *uri* against *target_root* using POSIX semantics.
+
+    SARIF URIs are always POSIX-style (forward slashes). Using OS-native
+    ``Path`` (which is ``WindowsPath`` on Windows) causes ``is_absolute()``
+    to fail for rootless paths and ``relative_to()`` to raise on drive
+    mismatches. ``PurePosixPath`` gives deterministic cross-platform behavior.
+    """
     parsed = urlparse(uri)
     path = unquote(parsed.path) if parsed.scheme == "file" else unquote(uri)
-    candidate = Path(path.replace("\\", "/"))
+    candidate = PurePosixPath(path.replace("\\", "/"))
+
     if target_root is not None and candidate.is_absolute():
+        # Determine the correct root using the OS-native Path (filesystem check)
         root = target_root if target_root.is_dir() or not target_root.exists() else target_root.parent
+        # Convert the OS-native root to a PurePosixPath string for the relativization logic
+        root_posix = PurePosixPath(str(root).replace("\\", "/"))
         with suppress(ValueError):
-            candidate = candidate.relative_to(root.resolve())
-    return candidate.as_posix()
+            candidate = candidate.relative_to(root_posix)
+
+    return str(candidate)
 
 
 def _rule_summary(rule: dict[str, Any], fallback: str) -> str:
