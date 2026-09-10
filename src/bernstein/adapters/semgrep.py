@@ -305,20 +305,14 @@ def parse_semgrep_sarif(report: str | bytes, *, target_root: Path | None = None)
 
 
 def _normalize_path(path: str, target_root: Path | None) -> str:
-    """Relativize *path* against *target_root* using POSIX semantics.
-
-    SARIF URIs are always POSIX-style (forward slashes). Using OS-native
-    ``Path`` (which is ``WindowsPath`` on Windows) causes ``is_absolute()``
-    to fail for rootless paths and ``relative_to()`` to raise on drive
-    mismatches. ``PurePosixPath`` gives deterministic cross-platform behavior.
-    """
-    candidate = PurePosixPath(path)
+    """Relativize *path* against *target_root* using POSIX semantics."""
+    candidate = PurePosixPath(path.replace("\\", "/"))
     if target_root is not None:
-        # Convert the OS-native target_root to a PurePosixPath string
-        # so the relativization logic matches the SARIF URI.
-        root_posix = PurePosixPath(str(target_root).replace("\\", "/"))
-        with suppress(ValueError):
-            candidate = candidate.relative_to(root_posix)
+        root_posix = PurePosixPath(str(target_root.resolve()).replace("\\", "/"))
+        anchored = root_posix.is_absolute() or ":" in root_posix.parts[0]
+        if anchored:
+            with suppress(ValueError):
+                candidate = candidate.relative_to(root_posix)
     return str(candidate)
 
 

@@ -251,3 +251,20 @@ def test_scan_result_carries_the_invocation_digest(tmp_path: Path) -> None:
     assert adapter.last_invocation is not None
     assert result.invocation_digest == adapter.last_invocation.argv_hash
     assert result.invocation_digest != ""
+
+
+def test_windows_drive_letter_path_is_relativized_correctly() -> None:
+    """Reproduce the Windows path bug without needing a Windows machine.
+
+    PurePosixPath doesn't consider 'C:/...' absolute, so we must gate
+    on the root being anchored, not the candidate (Issue #5787).
+    """
+    report = json.loads(_fixture_text())
+    artifact = report["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]
+
+    # Simulate a Windows drive-letter path
+    artifact["uri"] = "C:/checkout/project/app.env"
+
+    finding = parse_gitleaks_sarif(json.dumps(report), target_root=Path("C:/checkout/project"))[0]
+
+    assert finding.path == "app.env"
