@@ -290,7 +290,7 @@ def _normalize_path(path: str, target_root: Path | None) -> str:
     """Relativize *path* against *target_root* using POSIX semantics."""
     candidate = PurePosixPath(path.replace("\\", "/"))
     if target_root is not None:
-        root_posix = PurePosixPath(str(target_root.resolve()).replace("\\", "/"))
+        root_posix = PurePosixPath(str(target_root).replace("\\", "/"))
         anchored = root_posix.is_absolute() or ":" in root_posix.parts[0]
         if anchored:
             with suppress(ValueError):

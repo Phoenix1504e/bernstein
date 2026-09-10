@@ -320,7 +320,7 @@ def _normalize_path(uri: str, target_root: Path | None) -> str:
 
     if target_root is not None:
         root = target_root if target_root.is_dir() or not target_root.exists() else target_root.parent
-        root_posix = PurePosixPath(str(root.resolve()).replace("\\", "/"))
+        root_posix = PurePosixPath(str(root).replace("\\", "/"))
         anchored = root_posix.is_absolute() or ":" in root_posix.parts[0]
         if anchored:
             with suppress(ValueError):
