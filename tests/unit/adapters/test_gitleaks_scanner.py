@@ -256,8 +256,7 @@ def test_scan_result_carries_the_invocation_digest(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "module_name,func_name",
     [
-        ("bernstein.adapters.gitleaks", "_normalize_path"),
-        ("bernstein.adapters.semgrep", "_normalize_path"),
+        ("bernstein.adapters.scanner", "normalize_finding_path"),
         ("bernstein.adapters.trivy", "_normalize_path"),
     ],
 )
