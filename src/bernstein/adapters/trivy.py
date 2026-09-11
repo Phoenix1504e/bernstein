@@ -12,7 +12,7 @@ import sys
 import tempfile
 from contextlib import suppress
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any, cast
 from urllib.parse import unquote, urlparse
 
@@ -32,6 +32,7 @@ from bernstein.adapters.scanner import (
     ScannerCategory,
     ScanResult,
     ScanScope,
+    normalize_finding_path,
 )
 from bernstein.adapters.scanner_finding import Finding
 
@@ -316,17 +317,12 @@ def _normalize_path(uri: str, target_root: Path | None) -> str:
     """Relativize *uri* against *target_root* using POSIX semantics."""
     parsed = urlparse(uri)
     path = unquote(parsed.path) if parsed.scheme == "file" else unquote(uri)
-    candidate = PurePosixPath(path.replace("\\", "/"))
 
-    if target_root is not None:
-        root = target_root if target_root.is_dir() or not target_root.exists() else target_root.parent
-        root_posix = PurePosixPath(str(root).replace("\\", "/"))
-        anchored = root_posix.is_absolute() or (root_posix.parts and ":" in root_posix.parts[0])
-        if anchored:
-            with suppress(ValueError):
-                candidate = candidate.relative_to(root_posix)
+    root = target_root
+    if root is not None:
+        root = root if root.is_dir() or not root.exists() else root.parent
 
-    return str(candidate)
+    return normalize_finding_path(path, root)
 
 
 def _rule_summary(rule: dict[str, Any], fallback: str) -> str:

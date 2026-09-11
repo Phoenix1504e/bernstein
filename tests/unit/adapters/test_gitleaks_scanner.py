@@ -265,7 +265,8 @@ def test_windows_drive_letter_path_is_relativized_correctly(module_name: str, fu
 
     PurePosixPath doesn't consider 'C:/...' absolute, so we must gate
     on the root being anchored, not the candidate (Issue #5787).
-    Trivy was the adapter that regressed, so all three are pinned here.
+    Trivy was the adapter that regressed, so all three are pinned here
+    via the shared helper in scanner.py and trivy's URI wrapper.
     """
     import importlib
 
