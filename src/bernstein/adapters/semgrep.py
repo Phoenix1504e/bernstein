@@ -6,9 +6,8 @@ import hashlib
 import json
 import shutil
 import subprocess
-from contextlib import suppress
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any, cast
 
 from bernstein.adapters._contract import (
@@ -27,6 +26,7 @@ from bernstein.adapters.scanner import (
     ScannerCategory,
     ScanResult,
     ScanScope,
+    normalize_finding_path,
 )
 from bernstein.adapters.scanner_finding import Finding
 
@@ -282,7 +282,7 @@ def parse_semgrep_sarif(report: str | bytes, *, target_root: Path | None = None)
             path = str(artifact.get("uri") or "").replace("\\", "/")
             if not path:
                 raise ValueError(f"results[{result_index}] is missing artifactLocation.uri")
-            normalized_path = _normalize_path(path, target_root)
+            normalized_path = normalize_finding_path(path, target_root)
 
             region = _mapping(physical.get("region"), "region")
             snippet = str(_mapping(region.get("snippet"), "region.snippet").get("text") or "")
@@ -302,18 +302,6 @@ def parse_semgrep_sarif(report: str | bytes, *, target_root: Path | None = None)
             )
 
     return findings
-
-
-def _normalize_path(path: str, target_root: Path | None) -> str:
-    """Relativize *path* against *target_root* using POSIX semantics."""
-    candidate = PurePosixPath(path.replace("\\", "/"))
-    if target_root is not None:
-        root_posix = PurePosixPath(str(target_root).replace("\\", "/"))
-        anchored = root_posix.is_absolute() or (root_posix.parts and ":" in root_posix.parts[0])
-        if anchored:
-            with suppress(ValueError):
-                candidate = candidate.relative_to(root_posix)
-    return str(candidate)
 
 
 def _rule_descriptions(driver: dict[str, Any]) -> dict[str, str]:
