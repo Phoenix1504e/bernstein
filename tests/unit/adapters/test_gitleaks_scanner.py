@@ -253,18 +253,29 @@ def test_scan_result_carries_the_invocation_digest(tmp_path: Path) -> None:
     assert result.invocation_digest != ""
 
 
-def test_windows_drive_letter_path_is_relativized_correctly() -> None:
+@pytest.mark.parametrize(
+    "module_name,func_name",
+    [
+        ("bernstein.adapters.gitleaks", "_normalize_path"),
+        ("bernstein.adapters.semgrep", "_normalize_path"),
+        ("bernstein.adapters.trivy", "_normalize_path"),
+    ],
+)
+def test_windows_drive_letter_path_is_relativized_correctly(module_name: str, func_name: str) -> None:
     """Reproduce the Windows path bug without needing a Windows machine.
 
     PurePosixPath doesn't consider 'C:/...' absolute, so we must gate
     on the root being anchored, not the candidate (Issue #5787).
+    Trivy was the adapter that regressed, so all three are pinned here.
     """
-    report = json.loads(_fixture_text())
-    artifact = report["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]
+    import importlib
+
+    module = importlib.import_module(module_name)
+    normalize_func = getattr(module, func_name)
 
     # Simulate a Windows drive-letter path
-    artifact["uri"] = "C:/checkout/project/app.env"
+    assert normalize_func("C:/checkout/project/app.env", Path("C:/checkout/project")) == "app.env"
+    assert normalize_func("C:\\checkout\\project\\app.env", Path("C:/checkout/project")) == "app.env"
 
-    finding = parse_gitleaks_sarif(json.dumps(report), target_root=Path("C:/checkout/project"))[0]
-
-    assert finding.path == "app.env"
+    # Ensure relative roots don't truncate relative candidates (the latent edge)
+    assert normalize_func("src/app.py", Path("src")) == "src/app.py"
