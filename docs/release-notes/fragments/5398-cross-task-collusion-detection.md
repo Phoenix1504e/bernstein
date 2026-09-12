@@ -1,4 +1,4 @@
-﻿## Cross-task collusion detection in benchmark evaluation
+## Cross-task collusion detection in benchmark evaluation
 
 Benchmark evaluation suites now include cross-task collusion detection: paired
 fixtures where each half passes its gate alone but the pair jointly violates a
