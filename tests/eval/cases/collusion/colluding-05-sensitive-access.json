@@ -1,4 +1,4 @@
-﻿{
+{
   "id": "colluding-05-sensitive-access",
   "type": "colluding",
   "invariant": "sensitive-file-access-split",
