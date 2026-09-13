@@ -1,4 +1,4 @@
-﻿"""Tests for cross-task collusion detection (issue #5463).
+"""Tests for cross-task collusion detection (issue #5463).
 
 Acceptance criteria:
 - >= 5 colluding pairs flagged; >= 5 benign pairs pass.
@@ -57,21 +57,15 @@ class TestColludingPairsFlagged:
         assert result.flags, f"{fixture_name} was not flagged but should be"
         assert any(f.invariant == expected_invariant for f in result.flags)
 
-    def test_at_least_five_colluding_pairs_flagged(
-        self, detector: CrossTaskCollusionDetector
-    ) -> None:
+    def test_at_least_five_colluding_pairs_flagged(self, detector: CrossTaskCollusionDetector) -> None:
         colluding = [f for f in _all_fixtures() if f.stem.startswith("colluding")]
         assert len(colluding) >= 5
         for path in colluding:
-            pair = load_pair_from_fixture(
-                json.loads(path.read_text(encoding="utf-8-sig"))
-            )
+            pair = load_pair_from_fixture(json.loads(path.read_text(encoding="utf-8-sig")))
             result = detector.check_pair(pair)
             assert result.flags, f"{path.stem} should be flagged, got {result.flags}"
 
-    def test_colluding_pair_is_flagged_when_swapped(
-        self, detector: CrossTaskCollusionDetector
-    ) -> None:
+    def test_colluding_pair_is_flagged_when_swapped(self, detector: CrossTaskCollusionDetector) -> None:
         pair = _load_fixture("colluding-01-test-split")
         swapped_pair = type(pair)(
             pair_id=pair.pair_id + "-swapped",
@@ -103,25 +97,19 @@ class TestBenignPairsPass:
         result = detector.check_pair(pair)
         assert not result.flags
 
-    def test_at_least_five_benign_pairs_pass(
-        self, detector: CrossTaskCollusionDetector
-    ) -> None:
+    def test_at_least_five_benign_pairs_pass(self, detector: CrossTaskCollusionDetector) -> None:
         benign = [f for f in _all_fixtures() if f.stem.startswith("benign")]
         assert len(benign) >= 5
         passed = 0
         for path in benign:
-            pair = load_pair_from_fixture(
-                json.loads(path.read_text(encoding="utf-8-sig"))
-            )
+            pair = load_pair_from_fixture(json.loads(path.read_text(encoding="utf-8-sig")))
             if not detector.check_pair(pair).flags:
                 passed += 1
         assert passed >= 5
 
 
 class TestFlagShape:
-    def test_flag_names_invariant_and_both_tasks(
-        self, detector: CrossTaskCollusionDetector
-    ) -> None:
+    def test_flag_names_invariant_and_both_tasks(self, detector: CrossTaskCollusionDetector) -> None:
         pair = _load_fixture("colluding-01-test-split")
         result = detector.check_pair(pair)
         assert result.flags
@@ -130,9 +118,7 @@ class TestFlagShape:
         assert flag.task_a_id == "task-a"
         assert flag.task_b_id == "task-b"
 
-    def test_flag_includes_pair_id(
-        self, detector: CrossTaskCollusionDetector
-    ) -> None:
+    def test_flag_includes_pair_id(self, detector: CrossTaskCollusionDetector) -> None:
         pair = _load_fixture("colluding-02-shell-split")
         result = detector.check_pair(pair)
         assert result.flags
@@ -140,29 +126,21 @@ class TestFlagShape:
 
 
 class TestDeterminism:
-    def test_repeated_check_is_identical(
-        self, detector: CrossTaskCollusionDetector
-    ) -> None:
+    def test_repeated_check_is_identical(self, detector: CrossTaskCollusionDetector) -> None:
         pair = _load_fixture("colluding-03-config-widen")
         assert detector.check_pair(pair) == detector.check_pair(pair)
 
 
 class TestDependencyDetection:
-    def test_has_dependency_when_task_b_reads_task_a_writes(
-        self, detector: CrossTaskCollusionDetector
-    ) -> None:
+    def test_has_dependency_when_task_b_reads_task_a_writes(self, detector: CrossTaskCollusionDetector) -> None:
         pair = _load_fixture("colluding-01-test-split")
         assert detector.has_dependency(pair) is True
 
-    def test_no_dependency_when_tasks_are_unrelated(
-        self, detector: CrossTaskCollusionDetector
-    ) -> None:
+    def test_no_dependency_when_tasks_are_unrelated(self, detector: CrossTaskCollusionDetector) -> None:
         pair = _load_fixture("benign-01-unrelated")
         assert detector.has_dependency(pair) is False
 
-    def test_no_flags_without_dependency(
-        self, detector: CrossTaskCollusionDetector
-    ) -> None:
+    def test_no_flags_without_dependency(self, detector: CrossTaskCollusionDetector) -> None:
         pair = _load_fixture("colluding-01-test-split")
         no_dep_pair = type(pair)(
             pair_id=pair.pair_id + "-no-dep",
