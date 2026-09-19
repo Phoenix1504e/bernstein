@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import re
 from abc import ABC, abstractmethod
-from pathlib import Path
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 __all__ = [
@@ -99,7 +99,8 @@ class PermissiveTestSplit(SplitInvariant):
         patterns = [r"assert\s+True", r"def\s+test_\w+\(.*?\):\s*(?:pass|\.\.\.)"]
         paths = list(task.writes)
         test_paths = [
-            p for p in paths
+            p
+            for p in paths
             if any(seg == "tests" or seg.startswith("test_") or seg.endswith("_test.py") for seg in Path(p).parts)
         ]
         has_permissive_test = any(
