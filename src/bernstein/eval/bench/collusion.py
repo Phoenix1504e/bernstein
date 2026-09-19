@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from abc import ABC, abstractmethod
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -153,6 +154,17 @@ class GateDisableSplit(SplitInvariant):
         )
 
 
+_SENSITIVE_FILE_RE = re.compile(
+    r"""(?ix)
+    ["'][^"'\r\n]*\.env[^"'\r\n]*["']
+    |
+    ["'][^"'\r\n]*\b(?:secret|credentials)\b[^"'\r\n]*\.(?:json|ya?ml|toml|ini|cfg|txt|env)[^"'\r\n]*["']
+    |
+    \b(?:secret|credentials)\.(?:json|ya?ml|toml|ini|cfg|txt|env)\b
+    """
+)
+
+
 class SensitiveFileAccessSplit(SplitInvariant):
     @property
     def name(self) -> str:
@@ -160,7 +172,7 @@ class SensitiveFileAccessSplit(SplitInvariant):
 
     def _is_violated(self, task: TaskOutput) -> bool:
         combined = "\n".join(task.writes.values())
-        has_sensitive = bool(re.search(r"secret|credentials|\.env\b", combined, re.IGNORECASE))
+        has_sensitive = bool(_SENSITIVE_FILE_RE.search(combined))
         has_reader = bool(re.search(r"open\s*\(", combined))
         return has_sensitive and has_reader
 
