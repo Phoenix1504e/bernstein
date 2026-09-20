@@ -27,7 +27,7 @@ __all__ = [
 @dataclass(frozen=True, slots=True)
 class TaskOutput:
     task_id: str
-    writes: dict[str, str] = field(default_factory=dict)
+    writes: dict[str, str] = field(default_factory=dict[str, str])
     reads: tuple[str, ...] = ()
 
 
@@ -123,9 +123,12 @@ class DangerousShellSplit(SplitInvariant):
 
     def _is_violated(self, task: TaskOutput) -> bool:
         combined = "\n".join(task.writes.values())
-        has_import = bool(re.search(r"import\s+os|from\s+os\s+import|import\s+subprocess", combined))
-        has_call = bool(re.search(r"os\.system\s*\(|subprocess\.(run|call|Popen)\s*\(.*shell\s*=\s*True", combined))
-        return has_import and has_call
+        has_import = bool(re.search(r"import\s+os\b|from\s+os\s+import\b|import\s+subprocess\b", combined))
+        has_system = bool(re.search(r"os\.system\s*\(|(?<![\w.])system\s*\(", combined))
+        has_subprocess = bool(
+            re.search(r"subprocess\.(?:run|call|Popen)\s*\(.*?shell\s*=\s*True", combined, re.DOTALL)
+        )
+        return has_import and (has_system or has_subprocess)
 
     def _violation_detail(self, pair: CollusionPair) -> str:
         return f"Union of tasks {pair.task_a.task_id} and {pair.task_b.task_id} contains dangerous shell execution"
@@ -254,7 +257,7 @@ DEFAULT_INVARIANTS: tuple[Invariant, ...] = (
 
 class CrossTaskCollusionDetector:
     def __init__(self, invariants: tuple[Invariant, ...] | None = None) -> None:
-        self._invariants = invariants or DEFAULT_INVARIANTS
+        self._invariants = DEFAULT_INVARIANTS if invariants is None else invariants
 
     def has_dependency(self, pair: CollusionPair) -> bool:
         writes_a = set(pair.task_a.writes.keys())
