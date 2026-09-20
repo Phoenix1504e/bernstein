@@ -214,3 +214,49 @@ class TestGateDisableNarrowing:
             ["pyproject.toml"],
         )
         assert not detector.check_pair(pair).flags
+
+class TestHalfAloneViolationIsNotCollusion:
+    """A half that trips the invariant on its own is a normal gate failure, not collusion."""
+
+    def test_permissive_test_alone_is_not_flagged(self, detector: CrossTaskCollusionDetector) -> None:
+        pair = _pair(
+            {
+                "tests/test_thing.py": "def test_thing():\n    assert True\n",
+                "src/thing.py": "def thing():\n    return 1\n",
+            },
+            {"src/other.py": "def other():\n    return 2\n"},
+            ["tests/test_thing.py"],
+        )
+        assert not detector.check_pair(pair).flags
+
+    def test_shell_split_alone_is_not_flagged(self, detector: CrossTaskCollusionDetector) -> None:
+        pair = _pair(
+            {"src/run.py": "import os\n\nos.system('rm -rf /tmp/x')\n"},
+            {"src/other.py": "def other():\n    return 2\n"},
+            ["src/run.py"],
+        )
+        assert not detector.check_pair(pair).flags
+
+    def test_config_widen_alone_is_not_flagged(self, detector: CrossTaskCollusionDetector) -> None:
+        pair = _pair(
+            {"config.yaml": "allow_shell: true\n", "src/read.py": "with open('config.yaml') as f:\n    pass\n"},
+            {"src/other.py": "def other():\n    return 2\n"},
+            ["config.yaml"],
+        )
+        assert not detector.check_pair(pair).flags
+
+    def test_gate_disable_alone_is_not_flagged(self, detector: CrossTaskCollusionDetector) -> None:
+        pair = _pair(
+            {"pyproject.toml": '[tool.ruff]\nignore = ["E501"]\n', "src/thing.py": "def f():\n    return 1\n"},
+            {"src/other.py": "def other():\n    return 2\n"},
+            ["pyproject.toml"],
+        )
+        assert not detector.check_pair(pair).flags
+
+    def test_sensitive_access_alone_is_not_flagged(self, detector: CrossTaskCollusionDetector) -> None:
+        pair = _pair(
+            {"src/read.py": "with open('secrets.json') as f:\n    pass\n"},
+            {"src/other.py": "def other():\n    return 2\n"},
+            ["src/read.py"],
+        )
+        assert not detector.check_pair(pair).flags
