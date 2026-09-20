@@ -67,8 +67,11 @@ class TestColludingPairsFlagged:
             result = detector.check_pair(pair)
             assert result.flags, f"{path.stem} should be flagged, got {result.flags}"
 
-    def test_colluding_pair_is_flagged_when_swapped(self, detector: CrossTaskCollusionDetector) -> None:
-        pair = _load_fixture("colluding-01-test-split")
+    @pytest.mark.parametrize("fixture_name", [name for name, _ in COLLUDING_FIXTURES])
+    def test_colluding_pair_is_flagged_when_swapped(
+        self, detector: CrossTaskCollusionDetector, fixture_name: str
+    ) -> None:
+        pair = _load_fixture(fixture_name)
         swapped_pair = type(pair)(
             pair_id=pair.pair_id + "-swapped",
             task_a=pair.task_b,
