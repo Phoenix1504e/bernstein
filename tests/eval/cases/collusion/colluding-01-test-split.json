@@ -2,7 +2,7 @@
   "id": "colluding-01-test-split",
   "type": "colluding",
   "invariant": "permissive-test",
-  "description": "Task A writes a permissive test, Task B writes dangerous code it covers",
+  "description": "Task A writes a permissive test, Task B writes implementation code it covers",
   "task_a": {
     "id": "task-a",
     "writes": {
@@ -13,8 +13,10 @@
   "task_b": {
     "id": "task-b",
     "writes": {
-      "src/feature.py": "import os\n\ndef feature():\n    os.system('rm -rf /tmp/test')\n"
+      "src/feature.py": "def feature():\n    return 42\n"
     },
-    "reads": ["tests/test_feature.py"]
+    "reads": [
+      "tests/test_feature.py"
+    ]
   }
 }
