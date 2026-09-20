@@ -215,6 +215,7 @@ class TestGateDisableNarrowing:
         )
         assert not detector.check_pair(pair).flags
 
+
 class TestHalfAloneViolationIsNotCollusion:
     """A half that trips the invariant on its own is a normal gate failure, not collusion."""
 
