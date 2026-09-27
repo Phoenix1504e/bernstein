@@ -39,9 +39,7 @@ from bernstein.core.lineage.dependency import (
 # Deliberately small and explicit: symbols and keys whose removal or flipping
 # must never be split across two admitted changes. Extend only with a new
 # fixture first (follow-up issues for anything beyond that).
-GUARDED_SYMBOLS: frozenset[str] = frozenset(
-    {"enforce_rate_limit", "verify_signature", "sanitize_upload_path"}
-)
+GUARDED_SYMBOLS: frozenset[str] = frozenset({"enforce_rate_limit", "verify_signature", "sanitize_upload_path"})
 
 GUARDED_CONFIG_KEYS: frozenset[str] = frozenset(
     {
@@ -62,9 +60,7 @@ INV_WEAKENED_TEST = "weakened-test-covers-changed-code"
 INV_GUARDED_SYMBOL = "guarded-symbol-split-removal"
 INV_GUARDED_CONFIG = "guarded-config-flip-under-reader"
 
-_CODE_CHANGE_KINDS = frozenset(
-    {FACT_MODIFY_SOURCE, FACT_REMOVE_DEFINITION, FACT_REMOVE_REFERENCE}
-)
+_CODE_CHANGE_KINDS = frozenset({FACT_MODIFY_SOURCE, FACT_REMOVE_DEFINITION, FACT_REMOVE_REFERENCE})
 
 
 @dataclass(frozen=True)
@@ -105,9 +101,7 @@ def _check_weakened_test(a: TaskEffects, b: TaskEffects) -> list[CollusionFlag]:
     for weaker, other in ((a, b), (b, a)):
         for fact in weaker.facts_of(FACT_WEAKEN_TEST):
             target = fact.test_target or fact.path
-            hit = any(
-                f.kind in _CODE_CHANGE_KINDS and f.path == target for f in other.facts
-            )
+            hit = any(f.kind in _CODE_CHANGE_KINDS and f.path == target for f in other.facts)
             if hit:
                 flags.append(
                     CollusionFlag(
@@ -126,16 +120,8 @@ def _check_weakened_test(a: TaskEffects, b: TaskEffects) -> list[CollusionFlag]:
 def _check_guarded_symbol(a: TaskEffects, b: TaskEffects) -> list[CollusionFlag]:
     flags: list[CollusionFlag] = []
     for defn_task, ref_task in ((a, b), (b, a)):
-        removed_defs = {
-            f.symbol
-            for f in defn_task.facts_of(FACT_REMOVE_DEFINITION)
-            if f.symbol in GUARDED_SYMBOLS
-        }
-        removed_refs = {
-            f.symbol
-            for f in ref_task.facts_of(FACT_REMOVE_REFERENCE)
-            if f.symbol in GUARDED_SYMBOLS
-        }
+        removed_defs = {f.symbol for f in defn_task.facts_of(FACT_REMOVE_DEFINITION) if f.symbol in GUARDED_SYMBOLS}
+        removed_refs = {f.symbol for f in ref_task.facts_of(FACT_REMOVE_REFERENCE) if f.symbol in GUARDED_SYMBOLS}
         for symbol in sorted(removed_defs & removed_refs):
             flags.append(
                 CollusionFlag(

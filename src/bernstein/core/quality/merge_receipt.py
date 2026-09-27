@@ -459,9 +459,7 @@ class MergeAdmissionReceipt:
         collusion = None
         if version >= _COLLUSION_FIELDS_SINCE:
             raw_collusion = row.get("collusion")
-            collusion = (
-                dict(raw_collusion) if isinstance(raw_collusion, dict) else None
-            )
+            collusion = dict(raw_collusion) if isinstance(raw_collusion, dict) else None
         return cls(
             head_sha=str(row["head_sha"]),
             merge_base_sha=str(row["merge_base_sha"]),

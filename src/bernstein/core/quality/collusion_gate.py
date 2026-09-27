@@ -144,16 +144,13 @@ def run_cross_task_gate(candidate_effects: list[TaskEffects]) -> CrossTaskAdmiss
     if flags:
         status: GateStatus = "fail"
         blocked = True
-        pairs = "; ".join(
-            f"{f['invariant']} ({f['task_a']}+{f['task_b']})" for f in flags
-        )
+        pairs = "; ".join(f"{f['invariant']} ({f['task_a']}+{f['task_b']})" for f in flags)
         details = f"{len(flags)} cross-task collusion flag(s): {pairs}"
     elif all_void:
         status = "inconclusive"
         blocked = True
         details = (
-            "no candidate task has recorded effect footprints; the "
-            "cross-task check cannot honestly evaluate admission"
+            "no candidate task has recorded effect footprints; the cross-task check cannot honestly evaluate admission"
         )
     else:
         status = "pass"
@@ -181,9 +178,7 @@ def run_cross_task_gate(candidate_effects: list[TaskEffects]) -> CrossTaskAdmiss
         scope=VerificationScope(
             oracle_id=ORACLE_ID,
             kind=GATE_NAME,
-            checked=tuple(
-                sorted("+".join(sorted((a.task_id, b.task_id))) for a, b in dependent)
-            ),
+            checked=tuple(sorted("+".join(sorted((a.task_id, b.task_id))) for a, b in dependent)),
             cannot_check=tuple(f"{t} (no effect footprints recorded)" for t in void),
             confidence="partial" if void else "high",
         ),

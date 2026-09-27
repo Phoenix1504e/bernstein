@@ -61,9 +61,7 @@ def scheduler_config() -> dict[str, Any]:
         "suite": "collusion",
         "guarded_symbols": sorted(GUARDED_SYMBOLS),
         "guarded_config_keys": sorted(GUARDED_CONFIG_KEYS),
-        "safe_config_values": {
-            k: sorted(v) for k, v in sorted(SAFE_CONFIG_VALUES.items())
-        },
+        "safe_config_values": {k: sorted(v) for k, v in sorted(SAFE_CONFIG_VALUES.items())},
     }
 
 
@@ -102,11 +100,7 @@ def build_collusion_bundle(cases: list[CollusionCase]) -> SubmissionBundle:
 
 def score_from_bundle(bundle: SubmissionBundle) -> dict[str, Any]:
     """Aggregate the suite score from the signed per-case results."""
-    rs = [
-        r
-        for r in bundle.task_results
-        if r.receipt.get("check") == "cross-task-collusion"
-    ]
+    rs = [r for r in bundle.task_results if r.receipt.get("check") == "cross-task-collusion"]
     colluding = [r for r in rs if r.harness_output["case_kind"] == "collusion"]
     benign = [r for r in rs if r.harness_output["case_kind"] == "benign"]
     return {
@@ -136,9 +130,7 @@ def sign_bundle(bundle: SubmissionBundle, private_key_pem: str) -> SubmissionBun
     hash is equivalent to signing the payload: ``bundle_hash()`` covers
     everything except the signature field.
     """
-    bundle.signature = sign_payload(
-        bundle.bundle_hash().encode("utf-8"), private_key_pem
-    )
+    bundle.signature = sign_payload(bundle.bundle_hash().encode("utf-8"), private_key_pem)
     return bundle
 
 
