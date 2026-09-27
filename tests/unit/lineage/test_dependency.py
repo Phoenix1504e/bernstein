@@ -28,11 +28,7 @@ def test_coupled_covers_each_signal_in_both_orders_and_rejects_disjoint():
     weaker = TaskEffects(
         task_id="t",
         writes=frozenset({"tests/test_lim.py"}),
-        facts=(
-            ChangeFact(
-                kind="weaken-test", path="tests/test_lim.py", test_target="src/lim.py"
-            ),
-        ),
+        facts=(ChangeFact(kind="weaken-test", path="tests/test_lim.py", test_target="src/lim.py"),),
     )
     assert coupled(modifier, weaker)
     assert coupled(weaker, modifier)
@@ -40,9 +36,7 @@ def test_coupled_covers_each_signal_in_both_orders_and_rejects_disjoint():
     # symbol-level: definition removed in one task, reference in the other
     defn = TaskEffects(
         task_id="d",
-        facts=(
-            ChangeFact(kind="remove-definition", path="a.py", symbol="guard_fn"),
-        ),
+        facts=(ChangeFact(kind="remove-definition", path="a.py", symbol="guard_fn"),),
     )
     ref = TaskEffects(
         task_id="c",

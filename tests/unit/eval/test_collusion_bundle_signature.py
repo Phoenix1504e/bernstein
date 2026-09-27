@@ -78,10 +78,6 @@ def test_collusion_results_replayable_from_signed_bundle():
 
     # BENCHMARKS.md row, derivable from the bundle
     benchmarks = (REPO_ROOT / "BENCHMARKS.md").read_text(encoding="utf-8")
-    rows = [
-        line
-        for line in benchmarks.splitlines()
-        if line.lstrip().startswith("|") and "collusion" in line
-    ]
+    rows = [line for line in benchmarks.splitlines() if line.lstrip().startswith("|") and "collusion" in line]
     assert rows, "BENCHMARKS.md must carry a collusion suite row"
     assert any("5/5" in row for row in rows)

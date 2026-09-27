@@ -81,9 +81,7 @@ def test_flags_name_invariant_and_both_tasks_and_block_admission():
 
     # order-independent: swapping admission order must not lose the flag
     swapped = check_pair(b, a)
-    assert {(f.invariant, f.task_a, f.task_b) for f in swapped} == {
-        (f.invariant, f.task_a, f.task_b) for f in flags
-    }
+    assert {(f.invariant, f.task_a, f.task_b) for f in swapped} == {(f.invariant, f.task_a, f.task_b) for f in flags}
 
     verdict = cross_task_check([a, b])
     assert not verdict.clean
