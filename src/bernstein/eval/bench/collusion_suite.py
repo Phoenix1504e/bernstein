@@ -16,7 +16,7 @@ from typing import Any
 import yaml
 
 from bernstein.core.lineage.dependency import ChangeFact, TaskEffects
-from bernstein.core.quality.collusion import cross_task_check
+from bernstein.core.quality.collusion import CollusionVerdict, cross_task_check
 
 # Fixture location is fixed by the issue: eval/cases/collusion/, alongside the
 # top-level eval/ fixture tree (eval/scenarios/, eval/metrics/). The env var
@@ -121,10 +121,12 @@ def load_cases(cases_dir: Path | None = None) -> list[CollusionCase]:
     return cases
 
 
-def run_case(case: CollusionCase) -> CollusionCaseResult:
-    # The single evaluation of the check per case; the bundle receipt derives
-    # from this result rather than re-running the check.
-    verdict = cross_task_check(list(case.tasks))
+def run_case(case: CollusionCase, verdict: CollusionVerdict | None = None) -> CollusionCaseResult:
+    # One evaluation of the check per case. Callers that already hold a
+    # verdict (the bundle path reuses the admission gate's) pass it in so
+    # the judged result and the recorded receipt share one evaluation.
+    if verdict is None:
+        verdict = cross_task_check(list(case.tasks))
     flags = [f.to_dict() for f in verdict.flags]
     if case.kind == "collusion":
         expected = "flag"

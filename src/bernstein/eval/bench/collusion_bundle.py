@@ -18,6 +18,7 @@ import json
 from typing import Any
 
 from bernstein.core.lineage.dependency import TaskEffects
+from bernstein.core.quality.collusion_gate import run_cross_task_gate
 from bernstein.core.quality.collusion import (
     GUARDED_CONFIG_KEYS,
     GUARDED_SYMBOLS,
@@ -66,13 +67,15 @@ def scheduler_config() -> dict[str, Any]:
 
 
 def case_task_result(case: CollusionCase) -> TaskResult:
-    result = run_case(case)  # single evaluation; receipt derives from it
+    # The receipt is produced by the same object the merge admission path
+    # uses (CrossTaskAdmission.receipt_section), so the bundle's per-case
+    # receipts and the merge receipt's collusion record cannot drift.
+    # One evaluation feeds both the judged result and the receipt.
+    admission = run_cross_task_gate(list(case.tasks))
+    result = run_case(case, verdict=admission.verdict)
     receipt = {
-        "check": "cross-task-collusion",
+        **admission.receipt_section(),
         "tasks": [t.to_dict() for t in case.tasks],
-        "checked_pairs": result.checked_pairs,
-        "flags": list(result.flags),
-        "admitted": not result.flags,
     }
     return TaskResult(
         task_id=case.id,
