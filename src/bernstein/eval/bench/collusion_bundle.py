@@ -18,13 +18,13 @@ import json
 from typing import Any
 
 from bernstein.core.lineage.dependency import TaskEffects
-from bernstein.core.quality.collusion_gate import run_cross_task_gate
 from bernstein.core.quality.collusion import (
     GUARDED_CONFIG_KEYS,
     GUARDED_SYMBOLS,
     SAFE_CONFIG_VALUES,
     cross_task_check,
 )
+from bernstein.core.quality.collusion_gate import run_cross_task_gate
 from bernstein.core.skills.catalog.signature import sign_payload, verify_payload
 from bernstein.eval.bench.bundle import SubmissionBundle, TaskResult
 from bernstein.eval.bench.collusion_suite import CollusionCase, run_case
