@@ -1,11 +1,12 @@
 """Property: every collusion flag is attributable, blocks admission, is
-recorded in the signed merge receipt, and evidence gaps downgrade the claim
-instead of silently passing.
+recorded in the signed merge receipt, and evidence gaps never yield a clean
+verdict.
 
 A flag that doesn't name the invariant and both tasks can't be acted on or
-appealed; a "pass" over tasks with no footprints would be the bypass the
-pipeline's status vocabulary exists to prevent; a refusal not bound into
-the signed receipt preimage wouldn't survive an audit.
+appealed; a "pass" over tasks with no footprints — or over an empty
+candidate set — would be the bypass the pipeline's status vocabulary exists
+to prevent; a refusal not bound into the signed receipt preimage wouldn't
+survive an audit.
 """
 
 from bernstein.core.lineage.dependency import ChangeFact, TaskEffects
@@ -132,6 +133,7 @@ def test_clean_merge_records_check_and_passes():
     assert admission.admitted is True
     assert admission_decision(admission) == DECISION_ADMIT
     assert gate.scope is not None and gate.scope.checked == ()
+    assert gate.scope.confidence == "high"
     assert admission.receipt_section()["flags"] == []
 
 
@@ -143,7 +145,26 @@ def test_all_void_candidates_are_inconclusive_not_pass():
     assert gate.reason == "evidence-missing"
     assert gate.blocked is True
     assert admission.admitted is False
+    assert admission_decision(admission) == DECISION_REFUSE
+    assert gate.scope is not None and gate.scope.confidence == "none"
     assert admission.receipt_section()["void_tasks"] == ["opaque-task"]
+
+
+def test_empty_candidate_set_is_inconclusive_not_pass():
+    # an empty set has no evidence at all; "pass" over it would be the
+    # bypass the status vocabulary exists to prevent
+    admission = run_cross_task_gate([])
+    gate = admission.gate_result
+    assert gate.status == "inconclusive"
+    assert gate.reason == "evidence-missing"
+    assert gate.blocked is True
+    assert admission.admitted is False
+    assert admission_decision(admission) == DECISION_REFUSE
+    assert gate.scope is not None and gate.scope.confidence == "none"
+    section = admission.receipt_section()
+    assert section["void_tasks"] == []
+    assert section["flags"] == []
+    assert section["gate_status"] == "inconclusive"
 
 
 def test_partial_evidence_downgrades_scope_and_names_the_gap():
@@ -151,10 +172,19 @@ def test_partial_evidence_downgrades_scope_and_names_the_gap():
     void = TaskEffects(task_id="opaque-task")
     admission = run_cross_task_gate([evidenced, other, void])
     gate = admission.gate_result
-    assert gate.status == "fail"  # the evidenced pair is still judged
+    # a set containing any unrecorded candidate can never yield a clean
+    # verdict — but proven flags are still recorded for the appeal
+    assert gate.status == "inconclusive"
+    assert gate.reason == "evidence-missing"
+    assert gate.blocked is True
+    assert admission.admitted is False
+    assert admission_decision(admission) == DECISION_REFUSE
     assert gate.scope is not None
     assert gate.scope.confidence == "partial"
     assert gate.scope.cannot_check == ("opaque-task (no effect footprints recorded)",)
+    section = admission.receipt_section()
+    assert section["gate_status"] == "inconclusive"
+    assert section["flags"] and section["flags"][0]["invariant"] == INV_GUARDED_SYMBOL
 
 
 def test_merge_receipt_binding_carries_collusion_record():

@@ -19,13 +19,18 @@ projections the merge admission path consumes:
 Status mapping follows the pipeline's honesty rules (``GateStatus`` /
 ``INCONCLUSIVE_REASONS``):
 
-- flags present -> ``"fail"``, ``blocked=True`` (required gate).
-- every candidate task void (no footprints recorded at all) ->
-  ``"inconclusive"`` / ``"evidence-missing"``, ``blocked=True``: the gate
-  cannot honestly claim "pass" over evidence it does not have.
-- otherwise -> ``"pass"``. Candidates with no footprints alongside
-  evidenced ones downgrade the scope to ``confidence="partial"`` and are
-  named in ``cannot_check`` — the claim matches what was examined.
+- any candidate void (no footprints recorded), or an empty candidate set
+  -> ``"inconclusive"`` / ``"evidence-missing"``, ``blocked=True``: the
+  gate never emits a clean verdict over an incompletely evidenced set.
+  Flags found among the evidenced tasks are still recorded in metadata
+  and the receipt section — the decision is refused either way.
+- flags present (every candidate evidenced) -> ``"fail"``, ``blocked=True``.
+- otherwise -> ``"pass"``, scope confidence ``"high"``.
+
+Scope confidence mirrors the evidence honestly: ``"none"`` when nothing at
+all was examined (empty set, all-void), ``"partial"`` when a void task
+sits alongside evidenced ones (named in ``cannot_check``), ``"high"`` when
+every candidate was examined.
 """
 
 from __future__ import annotations
@@ -62,7 +67,7 @@ def _is_void(effects: TaskEffects) -> bool:
 
 
 def _void_tasks(effects: list[TaskEffects]) -> tuple[str, ...]:
-    return tuple(e.task_id for e in effects if _is_void(e))
+    return tuple(sorted(e.task_id for e in effects if _is_void(e)))
 
 
 def admission_decision(admission: CrossTaskAdmission) -> str:
@@ -139,26 +144,42 @@ def run_cross_task_gate(candidate_effects: list[TaskEffects]) -> CrossTaskAdmiss
     dependent = detect_dependencies(candidate_effects)
     flags = [f.to_dict() for f in verdict.flags]
     void = _void_tasks(candidate_effects)
-    all_void = bool(candidate_effects) and len(void) == len(candidate_effects)
+    incomplete = bool(void) or not candidate_effects
 
-    if flags:
-        status: GateStatus = "fail"
+    if incomplete:
+        # No clean verdict over an incompletely evidenced set: a pass here
+        # would be exactly the bypass INCONCLUSIVE_REASONS exists to prevent.
+        # Flags found among evidenced tasks are preserved in metadata and
+        # the receipt section; the decision is REFUSE either way.
+        status: GateStatus = "inconclusive"
+        blocked = True
+        parts = (
+            [f"{len(void)} of {len(candidate_effects)} candidate task(s) have no recorded effect footprints"]
+            if candidate_effects
+            else ["no candidate tasks to evaluate"]
+        )
+        if flags:
+            parts.append(f"{len(flags)} collusion flag(s) found among evidenced tasks and recorded in the receipt")
+        details = "; ".join(parts) + "; cannot honestly evaluate admission"
+    elif flags:
+        status = "fail"
         blocked = True
         pairs = "; ".join(f"{f['invariant']} ({f['task_a']}+{f['task_b']})" for f in flags)
         details = f"{len(flags)} cross-task collusion flag(s): {pairs}"
-    elif all_void:
-        status = "inconclusive"
-        blocked = True
-        details = (
-            "no candidate task has recorded effect footprints; the cross-task check cannot honestly evaluate admission"
-        )
     else:
         status = "pass"
         blocked = False
         details = (
-            f"no collusion across {len(candidate_effects)} candidate "
-            f"task(s); {len(dependent)} dependent pair(s) checked"
+            f"no collusion across {len(candidate_effects)} candidate task(s); "
+            f"{len(dependent)} dependent pair(s) checked"
         )
+
+    if not candidate_effects or len(void) == len(candidate_effects):
+        confidence = "none"  # nothing at all was examined
+    elif void:
+        confidence = "partial"  # examined alongside unrecorded candidates
+    else:
+        confidence = "high"
 
     gate = GateResult(
         name=GATE_NAME,
@@ -180,7 +201,7 @@ def run_cross_task_gate(candidate_effects: list[TaskEffects]) -> CrossTaskAdmiss
             kind=GATE_NAME,
             checked=tuple(sorted("+".join(sorted((a.task_id, b.task_id))) for a, b in dependent)),
             cannot_check=tuple(f"{t} (no effect footprints recorded)" for t in void),
-            confidence="partial" if void else "high",
+            confidence=confidence,
         ),
     )
     return CrossTaskAdmission(
