@@ -120,13 +120,13 @@ def load_cases(cases_dir: Path | None = None) -> list[CollusionCase]:
             raise ValueError(f"{c.id}: collusion case must declare stated_invariant")
     return cases
 
+
 def _is_void(t: TaskEffects) -> bool:
     """True when nothing at all is recorded for the task."""
     return not t.facts and not t.writes and not t.reads
 
-def run_case(
-    case: CollusionCase, verdict: CollusionVerdict | None = None
-) -> CollusionCaseResult:
+
+def run_case(case: CollusionCase, verdict: CollusionVerdict | None = None) -> CollusionCaseResult:
     # One evaluation of the check per case. Callers that already hold a
     # verdict (the bundle path reuses the admission gate's) pass it in so
     # the judged result and the recorded receipt share one evaluation.
@@ -146,8 +146,7 @@ def run_case(
         else:
             actual = (
                 "flag"
-                if case.stated_invariant
-                and any(f["invariant"] == case.stated_invariant for f in flags)
+                if case.stated_invariant and any(f["invariant"] == case.stated_invariant for f in flags)
                 else "pass"
             )
     else:
