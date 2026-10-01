@@ -120,22 +120,39 @@ def load_cases(cases_dir: Path | None = None) -> list[CollusionCase]:
             raise ValueError(f"{c.id}: collusion case must declare stated_invariant")
     return cases
 
+def _is_void(t: TaskEffects) -> bool:
+    """True when nothing at all is recorded for the task."""
+    return not t.facts and not t.writes and not t.reads
 
-def run_case(case: CollusionCase, verdict: CollusionVerdict | None = None) -> CollusionCaseResult:
+def run_case(
+    case: CollusionCase, verdict: CollusionVerdict | None = None
+) -> CollusionCaseResult:
     # One evaluation of the check per case. Callers that already hold a
     # verdict (the bundle path reuses the admission gate's) pass it in so
     # the judged result and the recorded receipt share one evaluation.
     if verdict is None:
         verdict = cross_task_check(list(case.tasks))
     flags = [f.to_dict() for f in verdict.flags]
+    # A case with any void task cannot be honestly judged: no flags over
+    # missing evidence is NOT a clearance. Benign pairs must be scored
+    # "inconclusive" (a failure) rather than "pass" — otherwise a detector
+    # that never saw the footprints would look like one that found nothing
+    # (the latent false-negative this suite exists to prevent).
+    void = any(_is_void(t) for t in case.tasks)
     if case.kind == "collusion":
         expected = "flag"
-        actual = (
-            "flag" if case.stated_invariant and any(f["invariant"] == case.stated_invariant for f in flags) else "pass"
-        )
+        if void:
+            actual = "pass"  # cannot prove collusion without footprints
+        else:
+            actual = (
+                "flag"
+                if case.stated_invariant
+                and any(f["invariant"] == case.stated_invariant for f in flags)
+                else "pass"
+            )
     else:
         expected = "pass"
-        actual = "flag" if flags else "pass"
+        actual = "inconclusive" if void else ("flag" if flags else "pass")
     return CollusionCaseResult(
         case_id=case.id,
         kind=case.kind,

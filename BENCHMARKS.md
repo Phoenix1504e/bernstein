@@ -47,4 +47,4 @@ bernstein bench verify tool-surface-bundle.json --suite tool-surface-v1
 ```
 | Suite | Cases | Result | Notes |
 |---|---|---|---|
-| collusion-pairs | 10 | collusion flagged 5/5 · benign passed 5/5 | cross-task check at merge admission (#5398) |
+| collusion-pairs | 10 | collusion flagged 5/5 · benign passed 5/5 | cross-task check at merge admission (#5398) — eval suite only; live admission wiring is #5463 slice 2 |
