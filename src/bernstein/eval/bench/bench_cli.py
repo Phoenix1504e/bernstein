@@ -8,9 +8,10 @@ Registered in src/bernstein/cli/main.py alongside every other subcommand:
 
 This exposes:
     bernstein bench run <suite> [--out <path>] [--scheduler <name>] [--stub-signer]
-                        [--reliability K] [--ci] [--sarif-out <path>]
+                        [--reliability K] [--budget <usd>] [--ci] [--sarif-out <path>]
                         [--baseline <path>] [--regression-threshold <float>]
                         [--repo <slug>] [--head-sha <sha>]
+    bernstein bench compare <a> <b> [--allow-harness-drift] [--format text|markdown|json]
     bernstein bench verify <bundle> [--suite <name>]
     bernstein bench reliability-verify <receipt> [--suite <name>]
     bernstein bench reliability-check <receipt> [--suite <name>] [--task <id>] [--attempt N]
@@ -24,12 +25,13 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import click
 
 if TYPE_CHECKING:
     from bernstein.eval.bench.bundle import SubmissionBundle
+    from bernstein.eval.bench.runner import ReplayAdapter
     from bernstein.eval.bench.suite import BenchSuite
 
 # ---------------------------------------------------------------------------
@@ -60,6 +62,47 @@ def _get_suite(name: str):
     raise click.BadParameter(
         f"Unknown suite {name!r}. Built-in suites: {', '.join(_BUILTIN)}. Or pass a path to a .json suite file.",
         param_hint="suite",
+    )
+
+
+def _resolve_adapter(suite_obj: BenchSuite) -> ReplayAdapter:
+    """The adapter that scores *suite_obj*: the suite's own, else the synthetic mock.
+
+    Only ``tool-surface-v1`` and ``gate-evasion-v1`` have an adapter that derives a verdict
+    from a run. Every other suite (``golden-v1`` and any ``.json`` suite) falls back to
+    ``MockReplayAdapter``, which passes everything; callers must check :func:`_is_synthetic`.
+    """
+    from bernstein.eval.bench.runner import MockReplayAdapter
+
+    if suite_obj.version == "tool-surface-v1":
+        from bernstein.eval.bench.tool_surface_suite import ToolSurfaceReplayAdapter
+
+        return ToolSurfaceReplayAdapter()
+    if suite_obj.version == "gate-evasion-v1":
+        from bernstein.eval.bench.gate_evasion_suite import GateEvasionReplayAdapter
+
+        return GateEvasionReplayAdapter()
+    return MockReplayAdapter()
+
+
+def _is_synthetic(adapter: object) -> bool:
+    """Whether *adapter* reports verdicts that no run produced."""
+    return bool(getattr(adapter, "synthetic", False))
+
+
+_MOCK_NOTICE = (
+    "MOCK adapter: this suite has no production adapter, so every verdict is synthetic "
+    "(pass, score 1.0) and was not derived from running any task."
+)
+
+
+def _refuse_install_identity_for_mock(suite_obj: BenchSuite, what: str) -> None:
+    """Fail closed rather than sign synthetic verdicts with the real install identity."""
+    raise click.ClickException(
+        f"Suite {suite_obj.version!r} has no production adapter, so its verdicts would come from the "
+        f"synthetic mock adapter (every task passes, score 1.0). Refusing to sign {what} with the "
+        "install identity: the signature would attest a result nothing produced. "
+        "Pass --stub-signer to produce a test-grade, mock-labelled output."
     )
 
 
@@ -129,6 +172,7 @@ def bench_group() -> None:
 
     \b
     bernstein bench run golden-v1 --out bundle.json
+    bernstein bench compare bundle_a.json bundle_b.json
     bernstein bench verify bundle.json
     """
 
@@ -158,6 +202,12 @@ def bench_group() -> None:
         "Run each task K times under fixed coordination and emit a signed "
         "pass^k reliability receipt instead of a submission bundle."
     ),
+)
+@click.option(
+    "--budget",
+    type=float,
+    default=None,
+    help="Stop running tasks once cumulative cost reaches this USD limit. Not combined with --reliability.",
 )
 @click.option(
     "--ci",
@@ -199,6 +249,7 @@ def bench_run(
     scheduler: str,
     stub_signer: bool,
     reliability_k: int | None,
+    budget: float | None,
     ci: bool,
     sarif_out: str | None,
     baseline: str | None,
@@ -217,7 +268,7 @@ def bench_run(
     (all K attempts passed — the headline floor).
     """
     from bernstein.eval.bench.bundle import SubmissionBundle
-    from bernstein.eval.bench.runner import BenchRunner, MockReplayAdapter, ReplayAdapter
+    from bernstein.eval.bench.runner import BenchRunner
     from bernstein.eval.bench.signer import AgentCardSigner, StubSigner
 
     # Every CI output -- the SARIF report, the scorecard, the check run --
@@ -258,25 +309,31 @@ def bench_run(
     click.echo(f"Tasks       : {len(suite_obj.tasks)}")
 
     if reliability_k is not None:
+        # The reliability runner does not enforce a budget. A cap that is
+        # accepted and not applied is worse than one that is refused.
+        if budget is not None:
+            raise click.ClickException(
+                "--budget is not enforced on the --reliability path. "
+                "Run without --reliability to cap spend, or without --budget to measure pass^k."
+            )
         _run_reliability(suite_obj, scheduler, reliability_k, Path(out), stub_signer)
         return
 
-    # Production: swap MockReplayAdapter for the real scenario_runner adapter.
-    adapter: ReplayAdapter
-    if suite_obj.version == "tool-surface-v1":
-        from bernstein.eval.bench.tool_surface_suite import ToolSurfaceReplayAdapter
-
-        adapter = ToolSurfaceReplayAdapter()
-    elif suite_obj.version == "gate-evasion-v1":
-        from bernstein.eval.bench.gate_evasion_suite import GateEvasionReplayAdapter
-
-        adapter = GateEvasionReplayAdapter()
-    else:
-        adapter = MockReplayAdapter()
+    adapter = _resolve_adapter(suite_obj)
+    scheduler_config: dict[str, Any] = {"scheduler": scheduler}
+    synthetic = _is_synthetic(adapter)
+    if synthetic:
+        if not stub_signer:
+            _refuse_install_identity_for_mock(suite_obj, "this bundle")
+        # Part of scheduler_config, so it is hashed, signed and part of the harness fingerprint:
+        # the bundle says what scored it, and cannot be ranked against a really-scored one.
+        scheduler_config["adapter"] = "mock"
+        click.echo(f"Adapter     : {_MOCK_NOTICE}", err=True)
     runner = BenchRunner(
         suite=suite_obj,
         adapter=adapter,
-        scheduler_config={"scheduler": scheduler},
+        scheduler_config=scheduler_config,
+        budget_usd=budget,
     )
 
     click.echo("\nRunning tasks…")
@@ -288,8 +345,11 @@ def bench_run(
     out_path = Path(out)
     bundle.save(out_path)
 
-    click.echo(f"\nScore       : {bundle.overall_score * 100:.1f}%")
+    mock_tag = "  (MOCK: synthetic, not a measured result)" if synthetic else ""
+    click.echo(f"\nScore       : {bundle.overall_score * 100:.1f}%{mock_tag}")
     click.echo(f"Pass rate   : {bundle.pass_rate * 100:.1f}%")
+    click.echo(f"Total tokens: {bundle.total_tokens:,}")
+    click.echo(f"Total cost  : ${bundle.total_cost_usd:.4f}")
     click.echo(f"Bundle hash : {bundle.bundle_hash()}")
     click.echo(f"Signed by   : {bundle.signer_fingerprint or '(unsigned)'}")
     click.echo(f"\nBundle written to: {out_path}")
@@ -358,6 +418,22 @@ def bench_run(
         if ci and scorecard.conclusion == "failure":
             sys.exit(1)
 
+    # A run the budget cut short is not a completed run. Say so where a CI
+    # log reader will see it, and exit non-zero: the bundle still records
+    # every refusal receipt, but "score 20%" alone cannot be told apart from
+    # "one of five passed" (#5464 review, F4).
+    # The same predicate the verifier scores against and the comparison
+    # counts. This read ``harness_output["refusal"]``, so a receipt carrying
+    # the canonical status and no harness output was refused, verified clean,
+    # and was never mentioned here.
+    refused = bundle.refused_results()
+    if refused:
+        click.echo(
+            f"\nBudget exceeded: limit ${budget:.4f}, spent ${bundle.total_cost_usd:.4f}; "
+            f"{len(refused)}/{len(bundle.task_results)} tasks refused and recorded as refusal receipts."
+        )
+        sys.exit(2)
+
 
 # ---------------------------------------------------------------------------
 # bernstein bench verify
@@ -405,28 +481,23 @@ def bench_verify(
     Exits 0 on MATCH, 1 on any divergence, fabricated score, or unverifiable signature.
     """
     from bernstein.eval.bench.bundle import SubmissionBundle
-    from bernstein.eval.bench.runner import MockReplayAdapter, ReplayAdapter
     from bernstein.eval.bench.verifier import BenchVerifier
 
     bundle_path = Path(bundle)
     if not bundle_path.exists():
         raise click.ClickException(f"Bundle file not found: {bundle_path}")
 
-    bundle_obj = SubmissionBundle.load(bundle_path)
+    # Loading rebuilds the bundle and recomputes its hash; a file edited after it was written fails
+    # here. That is a verdict about the bundle, not a crash, so it is reported as one.
+    try:
+        bundle_obj = SubmissionBundle.load(bundle_path)
+    except (ValueError, KeyError, TypeError) as exc:
+        raise click.ClickException(
+            f"Bundle {bundle_path} is not a valid, untampered bundle: {type(exc).__name__}: {exc}"
+        ) from exc
     suite_obj = _get_suite(suite)
 
-    # Production: swap MockReplayAdapter for the real scenario_runner adapter.
-    adapter: ReplayAdapter
-    if suite_obj.version == "tool-surface-v1":
-        from bernstein.eval.bench.tool_surface_suite import ToolSurfaceReplayAdapter
-
-        adapter = ToolSurfaceReplayAdapter()
-    elif suite_obj.version == "gate-evasion-v1":
-        from bernstein.eval.bench.gate_evasion_suite import GateEvasionReplayAdapter
-
-        adapter = GateEvasionReplayAdapter()
-    else:
-        adapter = MockReplayAdapter()
+    adapter = _resolve_adapter(suite_obj)
     keys: dict[str, bytes] = {}
     for entry in trusted_keys:
         fingerprint, sep, key_path = entry.partition("=")
@@ -447,6 +518,11 @@ def bench_verify(
     result = verifier.verify(bundle_obj)
 
     click.echo(result.report())
+    if _is_synthetic(adapter):
+        click.echo(
+            f"\n{_MOCK_NOTICE} MATCH here covers receipt integrity, task coverage and signature only; "
+            "it does not show that any task passed.",
+        )
     sys.exit(0 if result.passed else 1)
 
 
@@ -464,14 +540,26 @@ def bench_verify(
     default=False,
     help="Rank even when the two bundles' harness fingerprints differ.",
 )
-def bench_compare(a: str, b: str, allow_harness_drift: bool) -> None:
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "markdown", "json"]),
+    default="text",
+    show_default=True,
+    help="text ranks and prints deltas; markdown and json render the full comparison report.",
+)
+def bench_compare(a: str, b: str, allow_harness_drift: bool, output_format: str) -> None:
     """Compare two submission bundles, ranking by expected value.
 
     A and B are paths to submission bundle .json files.
 
     The expected value is computed as (resolved - lambda * wrong) / attempted,
-    where resolved is the number of passed tasks, wrong is the number of failed
-    tasks, attempted is the total tasks, and lambda defaults to 1.0.
+    where resolved is the number of passed tasks, wrong is the number of tasks
+    that did not pass, attempted is the total tasks (a bundle records no
+    abstentions), and lambda is the bundle's own signed lambda_value
+    (default 0.5).
+
+    Bundles are not verified here: run `bench verify` first.
 
     The harness fingerprint is recomputed from each bundle's raw
     scheduler_config before it is trusted.  Bundles from different
@@ -504,6 +592,9 @@ def bench_compare(a: str, b: str, allow_harness_drift: bool) -> None:
                 f"hashes to {expected[:12]}…."
             )
 
+    # With a machine-readable format the report owns stdout; the harness
+    # verdict still has to be said, so it goes to stderr there.
+    to_stderr = output_format != "text"
     fp_a, fp_b = bundle_a.harness_fingerprint, bundle_b.harness_fingerprint
     if fp_a != fp_b:
         differing = sorted(
@@ -511,43 +602,73 @@ def bench_compare(a: str, b: str, allow_harness_drift: bool) -> None:
             for key in set(bundle_a.scheduler_config) | set(bundle_b.scheduler_config)
             if bundle_a.scheduler_config.get(key) != bundle_b.scheduler_config.get(key)
         )
-        click.echo(f"Harness fingerprints differ: {fp_a[:12]}… vs {fp_b[:12]}…")
-        click.echo(f"Differing harness settings: {', '.join(differing)}")
+        click.echo(f"Harness fingerprints differ: {fp_a[:12]}… vs {fp_b[:12]}…", err=to_stderr)
+        click.echo(f"Differing harness settings: {', '.join(differing)}", err=to_stderr)
         if not allow_harness_drift:
             click.echo(
                 "Refusing to rank: a score gap across differing harness settings "
                 "is a harness change, not a model change. "
-                "Pass --allow-harness-drift to rank anyway."
+                "Pass --allow-harness-drift to rank anyway.",
+                err=to_stderr,
             )
             sys.exit(1)
-        click.echo("--allow-harness-drift: ranking anyway.")
+        click.echo("--allow-harness-drift: ranking anyway.", err=to_stderr)
     else:
-        click.echo(f"Harness fingerprint: {fp_a} (match)")
+        click.echo(f"Harness fingerprint: {fp_a} (match)", err=to_stderr)
 
-    def expected_value(bundle: SubmissionBundle) -> float:
-        """Compute expected value: (resolved - lambda * wrong) / attempted."""
-        lam = bundle.scheduler_config.get("lambda", 1.0)
-        try:
-            lam = float(lam)
-        except (ValueError, TypeError):
-            lam = 1.0
-        n = len(bundle.task_results)
-        if n == 0:
-            return 0.0
-        resolved = bundle.pass_rate * n
-        wrong = (1.0 - bundle.pass_rate) * n
-        return (resolved - lam * wrong) / n
+    # The harness check above gates every format: a cost or token delta
+    # across differing harness settings is as meaningless as a score delta.
+    from bernstein.eval.bench.compare import compare_bundles
 
-    ordered = sorted([(path_a, bundle_a), (path_b, bundle_b)], key=lambda p: -expected_value(p[1]))
+    try:
+        report = compare_bundles(bundle_a, bundle_b)
+    except ValueError as exc:
+        if not allow_harness_drift:
+            raise
+        click.echo(f"--allow-harness-drift: {exc}", err=to_stderr)
+        report = compare_bundles(bundle_a, bundle_b, check_fingerprint=False)
+    if output_format == "json":
+        click.echo(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+        return
+    if output_format == "markdown":
+        click.echo(report.to_markdown())
+        return
+
+    ordered = sorted([(path_a, bundle_a), (path_b, bundle_b)], key=lambda p: -p[1].expected_value())
     click.echo("")
     for rank, (path, bundle) in enumerate(ordered, start=1):
-        ev = expected_value(bundle)
         click.echo(
             f"{rank}. {path.name}: score {bundle.overall_score * 100:.1f}%, "
-            f"resolve rate {bundle.pass_rate * 100:.1f}%, "
-            f"expected value {ev:.3f}"
+            f"pass rate {bundle.pass_rate * 100:.1f}% over {len(bundle.task_results)} tasks, "
+            f"expected value {bundle.expected_value():.3f} (lambda {bundle.lambda_value:g})"
         )
-    _echo_cost_delta(path_a, bundle_a, path_b, bundle_b)
+    if bundle_a.lambda_value != bundle_b.lambda_value:
+        click.echo(
+            f"Warning: the bundles carry different lambda values ({bundle_a.lambda_value:g} vs "
+            f"{bundle_b.lambda_value:g}); each is ranked by its own, so the expected values are "
+            "not on one scale."
+        )
+    click.echo(
+        "Note: bundles are ranked as given. Signatures and receipts are not verified here "
+        "(run `bernstein bench verify` on each bundle first)."
+    )
+    if any(r.has_resource_metrics() for r in (*bundle_a.task_results, *bundle_b.task_results)):
+        click.echo("")
+        click.echo(
+            f"Cost     : ${report.cost_a_usd:.4f} -> ${report.cost_b_usd:.4f} "
+            f"({report.cost_delta_usd:+.4f}, {report.cost_delta_percent_text()})"
+        )
+        click.echo(f"Tokens   : {report.tokens_a:,} -> {report.tokens_b:,} ({report.tokens_delta:+,})")
+        click.echo(
+            f"Duration : {report.duration_a_seconds:.2f}s -> {report.duration_b_seconds:.2f}s "
+            f"({report.duration_delta_seconds:+.2f}s)"
+        )
+        if report.refused_a or report.refused_b:
+            click.echo(f"Refused  : {report.refused_a} -> {report.refused_b} tasks never ran (budget)")
+    else:
+        _echo_cost_delta(path_a, bundle_a, path_b, bundle_b)
+        if report.refused_a or report.refused_b:
+            click.echo(f"Refused  : {report.refused_a} -> {report.refused_b} tasks never ran (budget)")
 
 
 def _echo_cost_delta(
@@ -610,12 +731,16 @@ def _run_reliability(suite_obj: BenchSuite, scheduler: str, k: int, out_path: Pa
     )
     from bernstein.eval.bench.runner import MockReplayAdapter
 
-    # Production: swap MockReplayAdapter for the real scenario_runner adapter.
+    # The reliability path has no production adapter for any suite: it always scores through the
+    # synthetic mock, so it can only emit a stub-signed, mock-labelled receipt.
     adapter = MockReplayAdapter()
+    if not stub_signer:
+        _refuse_install_identity_for_mock(suite_obj, "this reliability receipt")
+    click.echo(f"Adapter     : {_MOCK_NOTICE}", err=True)
     runner = ReliabilityRunner(
         suite=suite_obj,
         adapter=adapter,
-        scheduler_config={"scheduler": scheduler},
+        scheduler_config={"scheduler": scheduler, "adapter": "mock"},
         k=k,
     )
 
