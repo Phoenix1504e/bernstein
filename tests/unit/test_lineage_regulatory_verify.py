@@ -704,6 +704,7 @@ class TestExporterScale:
 
     def test_5k_records_export_under_memory_budget(self, tmp_path: Path) -> None:
         import resource  # POSIX-only; the class skipif keeps this off Windows
+
         sdd = tmp_path / ".sdd"
         sdd.mkdir()
         writer = LineageWriter.for_run("run-big", sdd)
