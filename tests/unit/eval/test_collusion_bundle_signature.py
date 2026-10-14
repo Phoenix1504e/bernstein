@@ -80,4 +80,7 @@ def test_collusion_results_replayable_from_signed_bundle():
     benchmarks = (REPO_ROOT / "BENCHMARKS.md").read_text(encoding="utf-8")
     rows = [line for line in benchmarks.splitlines() if line.lstrip().startswith("|") and "collusion" in line]
     assert rows, "BENCHMARKS.md must carry a collusion suite row"
-    assert any("5/5" in row for row in rows)
+    pass_rate = score["collusion_flagged"] / score["collusion_total"]
+    assert any(f"{pass_rate:.1f} (100%)" in row for row in rows), (
+        "BENCHMARKS.md collusion row must carry the bundle-derived pass rate"
+    )
